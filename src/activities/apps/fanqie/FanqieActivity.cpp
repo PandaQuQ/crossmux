@@ -40,9 +40,12 @@ int blitQr(PNGDRAW* draw) {
   const int y = blit->originY + draw->y * blit->scale;
   for (int x = 0; x < draw->iWidth; ++x) {
     bool black = false;
-    if (draw->iBpp == 1) black = (draw->pPixels[x >> 3] & (0x80 >> (x & 7))) != 0;
-    else if (draw->iBpp >= 8) black = draw->pPixels[x] < 128;
-    else black = (draw->pPixels[x >> 1] & (x & 1 ? 0x0f : 0xf0)) < 8;
+    if (draw->iBpp == 1)
+      black = (draw->pPixels[x >> 3] & (0x80 >> (x & 7))) != 0;
+    else if (draw->iBpp >= 8)
+      black = draw->pPixels[x] < 128;
+    else
+      black = (draw->pPixels[x >> 1] & (x & 1 ? 0x0f : 0xf0)) < 8;
     if (!black) continue;
     for (int sy = 0; sy < blit->scale; ++sy) {
       for (int sx = 0; sx < blit->scale; ++sx) {
@@ -184,8 +187,16 @@ void FanqieActivity::loop() {
     if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) confirmArmed_ = true;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (screen_ == Screen::Accounts || screen_ == Screen::Disclaimer) activityManager.goHome();
-    else screen_ = Screen::Accounts;
+    if (screen_ == Screen::Accounts || screen_ == Screen::Disclaimer)
+      activityManager.goHome();
+    else
+      screen_ = Screen::Accounts;
+    requestUpdate();
+    return;
+  }
+  // X4 Pro has no confirm key. A tap accepts the disclaimer and dismisses a message.
+  if ((screen_ == Screen::Disclaimer || screen_ == Screen::Message) && mappedInput.wasScreenTouchReleased()) {
+    activate();
     requestUpdate();
     return;
   }

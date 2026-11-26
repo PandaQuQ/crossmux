@@ -88,8 +88,16 @@ bool idSafe(const char* bookId) {
 
 }  // namespace
 
+bool ensureDir(const char* path) {
+  // SdFat mkdir returns false when the directory is already there. /Fanqie
+  // exists as soon as a cached book is on the card, so that must still count.
+  if (Storage.exists(path)) return true;
+  return Storage.mkdir(path);
+}
+
 bool ensureRoot() {
-  return Storage.mkdir(kRoot) && Storage.mkdir("/.crosspoint/fanqie/books") && Storage.mkdir("/Fanqie");
+  return ensureDir("/.crosspoint") && ensureDir(kRoot) && ensureDir("/.crosspoint/fanqie/books") &&
+         ensureDir("/Fanqie");
 }
 
 bool loadAccounts(Account* accounts, int& count, int& active) {
@@ -259,10 +267,9 @@ bool saveMeta(const BookMeta& meta) {
   return writeAll(kIndex, indexBuffer, sizeof(outHeader) + sizeof(IndexRecord) * count);
 }
 
-bool findByEpubPath(const char* epubPath, BookMeta& meta) {
-  if (!epubPath || !epubPath[0]) return false;
+bool lookupEpubPath(const char* epubPath, BookMeta& meta) {
   HalFile file;
-  if (!Storage.openFileForRead("FQ", kIndex, file)) return false;
+  if (!Storage.exists(kIndex) || !Storage.openFileForRead("FQ", kIndex, file)) return false;
   IndexHeader header;
   if (file.read(&header, sizeof(header)) != sizeof(header) || header.magic != kIndexMagic || header.count > kMaxBooks)
     return false;
@@ -272,6 +279,53 @@ bool findByEpubPath(const char* epubPath, BookMeta& meta) {
     if (strcmp(record.epubPath, epubPath) == 0) return loadMeta(record.bookId, meta);
   }
   return false;
+}
+
+bool bookIdFromEpubPath(const char* path, char* bookId, size_t cap) {
+  constexpr char kPrefix[] = "/Fanqie/";
+  if (!path || strncmp(path, kPrefix, sizeof(kPrefix) - 1) != 0) return false;
+  const char* name = path + sizeof(kPrefix) - 1;
+  const char* dot = strrchr(name, '.');
+  if (!dot || strcmp(dot, ".epub") != 0 || strchr(name, '/') != nullptr) return false;
+  const size_t length = static_cast<size_t>(dot - name);
+  if (length == 0 || length >= cap || length >= 24) return false;
+  for (size_t i = 0; i < length; ++i) {
+    if (name[i] < '0' || name[i] > '9') return false;
+  }
+  memcpy(bookId, name, length);
+  bookId[length] = '\0';
+  return true;
+}
+
+bool adoptEpubFile(const char* path) {
+  char bookId[24];
+  if (!bookIdFromEpubPath(path, bookId, sizeof(bookId)) || !Storage.exists(path)) return false;
+  BookMeta existing;
+  if (loadMeta(bookId, existing) && strcmp(existing.epubPath, path) == 0) return true;
+  BookMeta meta;
+  snprintf(meta.bookId, sizeof(meta.bookId), "%s", bookId);
+  snprintf(meta.title, sizeof(meta.title), "%s", bookId);
+  snprintf(meta.epubPath, sizeof(meta.epubPath), "%s", path);
+  return saveMeta(meta);
+}
+
+bool adoptCachedBooks() {
+  bool adopted = false;
+  const auto names = Storage.listFiles("/Fanqie", kMaxBooks);
+  for (const auto& name : names) {
+    char path[128];
+    const int written = snprintf(path, sizeof(path), "/Fanqie/%s", name.c_str());
+    if (written > 0 && static_cast<size_t>(written) < sizeof(path) && adoptEpubFile(path)) adopted = true;
+  }
+  return adopted;
+}
+
+bool findByEpubPath(const char* epubPath, BookMeta& meta) {
+  if (!epubPath || !epubPath[0]) return false;
+  if (lookupEpubPath(epubPath, meta)) return true;
+  adoptCachedBooks();
+  adoptEpubFile(epubPath);
+  return lookupEpubPath(epubPath, meta);
 }
 
 bool epubPathFor(const char* bookId, char* out, size_t cap) {

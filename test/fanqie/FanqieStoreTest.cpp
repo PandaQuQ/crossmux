@@ -1,6 +1,3 @@
-#include "FanqieEpub.h"
-#include "FanqieStore.h"
-
 #include <HalStorage.h>
 #include <HardwareSerial.h>
 #include <gtest/gtest.h>
@@ -11,6 +8,9 @@
 #include <fstream>
 #include <string>
 #include <vector>
+
+#include "FanqieEpub.h"
+#include "FanqieStore.h"
 
 HardwareSerial Serial;
 
@@ -37,6 +37,21 @@ class FanqieStoreTest : public ::testing::Test {
 };
 
 }  // namespace
+
+TEST_F(FanqieStoreTest, AdoptsEpubWhenIndexIsMissing) {
+  ASSERT_TRUE(Storage.mkdir("/Fanqie"));
+  {
+    HalFile file;
+    ASSERT_TRUE(Storage.openFileForWrite("FQ", "/Fanqie/7000000000000000001.epub", file));
+    const char mark[] = "epub";
+    ASSERT_EQ(file.write(mark, sizeof(mark) - 1), sizeof(mark) - 1);
+  }
+  FanqieStore::BookMeta found;
+  ASSERT_TRUE(FanqieStore::findByEpubPath("/Fanqie/7000000000000000001.epub", found));
+  EXPECT_STREQ(found.bookId, "7000000000000000001");
+  EXPECT_STREQ(found.epubPath, "/Fanqie/7000000000000000001.epub");
+  EXPECT_FALSE(FanqieStore::findByEpubPath("/Fanqie/not-a-book.epub", found));
+}
 
 TEST_F(FanqieStoreTest, AccountsChaptersMetaAndEpubRoundTrip) {
   FanqieStore::Account accounts[2] = {};

@@ -74,10 +74,59 @@ login API.
   turned off when that activity exits. Reading itself does not keep the radio
   up. Exit upload therefore runs only when a connection is already up;
   otherwise it waits for the next open.
+- A card may contain `/Fanqie/<bookId>.epub` without
+  `/.crosspoint/fanqie/index.bin`. The browser emulator refuses to import a
+  root `.crosspoint` directory, and a real card can lose that index too.
+  `findByEpubPath` rebuilds it from digit-named EPUB files directly under
+  `/Fanqie/`. Creating that cache directory treats an existing directory as
+  success: SdFat's `mkdir` returns false when `/Fanqie` is already on the
+  card, and treating that as failure skipped the rebuild. The stored title is
+  the book id until a shelf sync replaces it. Opening still uses the existing
+  reader. With no chapter map, leaving the reader keeps the spine and page and
+  does not replace the percent the reader already wrote.
+- The X4 Pro has no confirm key. The disclaimer and the result message accept
+  a screen tap. The account list already activates the tapped row.
+- The capacitive Home key is handled by `ActivityManager` as `goHome()`. It
+  does not call `ReaderActivity::onGoHome()`, so the Fanqie upload activity
+  does not run on that gesture. The reader still writes the shelf percent
+  before it exits.
 - A successful `pio run -e x4pro`, a first paint, or a button ACK is not
   functional acceptance. The browser emulator does not simulate Wi-Fi, so it
   cannot prove login or sync. It also cannot replace a device check of radio
   timing or power.
+
+## Emulator, round 2
+
+Device `xteink_x4pro`, automation session, factory image SHA-256
+`503a9f648028fbbbaf6722dac4553b7f0938305365f4d66098dfdf9e279b57cf`
+(app partition 6386354 / 6553600, 97.4%). The card import was only
+`Fanqie/7000000000000000001.epub`. Screenshots are `#browser-screen`.
+
+Passed:
+
+- Onboarding completed by a tap on 简体中文. The home labels were Chinese.
+- The file browser opened that EPUB. The log then entered `FanqieSync` and
+  the panel showed 「正在打开已缓存的书」. The existing reader showed
+  “First fixture page of the cached Fanqie book…”.
+- Page-down replaced that sentence with “Second fixture page…”. The reader
+  footer moved from 5.3% to 100%.
+- Home’s first shelf row was “Fanqie Fixture” / CrossMux with chapter
+  progress 100%.
+- After `stop()` and `start()`, the same shelf frame came back (screenshot
+  SHA-256 `7afbccad42b6af1b22c93e02a3626b28f1bcf26c239c0c24ee18536db253e542`).
+
+Not passed:
+
+- The Fanqie account page. One run drew the disclaimer
+  （「这是番茄小说的非官方客户端…」） and did not crash. After that acceptance
+  was stored, opening the account list again stopped producing serial output
+  after the missing `accounts.bin` open. No `displayBuffer` followed, and a
+  further touch was rejected by the emulator kernel. The offline sentence
+  「没有网络。已缓存的书仍可从主页打开。」 was not captured. This does not
+  prove a crash, and it does not prove the offline screen.
+
+Logs, including batches marked truncated, are under
+`fanqie-x4pro/round2/` in the run artifacts.
 
 ## On-card layout
 

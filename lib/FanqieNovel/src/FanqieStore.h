@@ -59,6 +59,8 @@ bool hasChapterText(const char* bookId, uint32_t index);
 
 bool loadMeta(const char* bookId, BookMeta& meta);
 bool saveMeta(const BookMeta& meta);
+// If the index is missing, rebuild it from /Fanqie/<digits>.epub files already on the card.
+bool adoptCachedBooks();
 bool findByEpubPath(const char* epubPath, BookMeta& meta);
 bool epubPathFor(const char* bookId, char* out, size_t outCap);
 

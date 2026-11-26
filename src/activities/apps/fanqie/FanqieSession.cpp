@@ -158,7 +158,7 @@ bool writeChapterFromContent(const char* bookId, uint32_t index, const char* con
     size_t plainLen = 0;
     if (!FanqieCrypto::decryptContent(content, len, keyHex, plain.get(), 48 * 1024, plainLen)) return false;
     if (!FanqieProtocol::stripChapterText(reinterpret_cast<char*>(plain.get()), plainLen, text.get(), 48 * 1024,
-                                         textLen)) {
+                                          textLen)) {
       if (plainLen >= 48 * 1024) return false;
       memcpy(text.get(), plain.get(), plainLen);
       textLen = plainLen;
@@ -332,16 +332,17 @@ Status syncShelf() {
     FanqieProtocol::ShelfBook* books;
     int* count;
   } ctx{books, &bookCount};
-  if (!FanqieProtocol::parseShelfIds(shelf.get(), shelfLen,
-                                    [](void* raw, const char* id) {
-                                      auto* state = static_cast<IdCtx*>(raw);
-                                      if (*state->count >= FanqieStore::kMaxBooks) return true;
-                                      strncpy(state->books[*state->count].bookId, id, 23);
-                                      strncpy(state->books[*state->count].itemId, "0", 2);
-                                      ++*state->count;
-                                      return true;
-                                    },
-                                    &ctx))
+  if (!FanqieProtocol::parseShelfIds(
+          shelf.get(), shelfLen,
+          [](void* raw, const char* id) {
+            auto* state = static_cast<IdCtx*>(raw);
+            if (*state->count >= FanqieStore::kMaxBooks) return true;
+            strncpy(state->books[*state->count].bookId, id, 23);
+            strncpy(state->books[*state->count].itemId, "0", 2);
+            ++*state->count;
+            return true;
+          },
+          &ctx))
     return Status::Failed;
   if (bookCount == 0) return Status::Ok;
   char body[2048];
@@ -349,8 +350,8 @@ Status syncShelf() {
       !FanqieProtocol::multidetailUrl(url, sizeof(url)))
     return Status::Failed;
   FanqieNet::Response response;
-  if (!FanqieNet::request(url, "POST", reinterpret_cast<const uint8_t*>(body), strlen(body), "application/json", nullptr,
-                          &jar, nullptr, nullptr, kScratch, response, nullptr))
+  if (!FanqieNet::request(url, "POST", reinterpret_cast<const uint8_t*>(body), strlen(body), "application/json",
+                          nullptr, &jar, nullptr, nullptr, kScratch, response, nullptr))
     return Status::Failed;
   std::unique_ptr<char[]> detail;
   size_t detailLen = 0;
@@ -367,17 +368,18 @@ Status syncShelf() {
     FanqieProtocol::ShelfBook* books;
     int count;
   } progressCtx{books, bookCount};
-  FanqieProtocol::parseProgress(progress.get(), progressLen,
-                                [](void* raw, const FanqieProtocol::ProgressRecord& record) {
-                                  auto* state = static_cast<ProgressCtx*>(raw);
-                                  for (int i = 0; i < state->count; ++i) {
-                                    if (strcmp(state->books[i].bookId, record.bookId) == 0) {
-                                      strncpy(state->books[i].itemId, record.itemId, sizeof(state->books[i].itemId) - 1);
-                                    }
-                                  }
-                                  return true;
-                                },
-                                &progressCtx);
+  FanqieProtocol::parseProgress(
+      progress.get(), progressLen,
+      [](void* raw, const FanqieProtocol::ProgressRecord& record) {
+        auto* state = static_cast<ProgressCtx*>(raw);
+        for (int i = 0; i < state->count; ++i) {
+          if (strcmp(state->books[i].bookId, record.bookId) == 0) {
+            strncpy(state->books[i].itemId, record.itemId, sizeof(state->books[i].itemId) - 1);
+          }
+        }
+        return true;
+      },
+      &progressCtx);
   for (int i = 0; i < bookCount; ++i) {
     for (int d = 0; d < detailCount; ++d) {
       if (strcmp(details[d].bookId, books[i].bookId) == 0) {
@@ -402,16 +404,17 @@ Status syncShelf() {
         FanqieStore::ChapterRecord* records;
         uint32_t count;
       } chapterCtx{records.get(), 0};
-      FanqieProtocol::parseChapters(directory.get(), directoryLen,
-                                    [](void* raw, const FanqieProtocol::ChapterRef& chapter) {
-                                      auto* state = static_cast<ChapterCtx*>(raw);
-                                      if (state->count >= 600) return true;
-                                      auto& record = state->records[state->count++];
-                                      strncpy(record.itemId, chapter.itemId, sizeof(record.itemId) - 1);
-                                      strncpy(record.title, chapter.title, sizeof(record.title) - 1);
-                                      return true;
-                                    },
-                                    &chapterCtx);
+      FanqieProtocol::parseChapters(
+          directory.get(), directoryLen,
+          [](void* raw, const FanqieProtocol::ChapterRef& chapter) {
+            auto* state = static_cast<ChapterCtx*>(raw);
+            if (state->count >= 600) return true;
+            auto& record = state->records[state->count++];
+            strncpy(record.itemId, chapter.itemId, sizeof(record.itemId) - 1);
+            strncpy(record.title, chapter.title, sizeof(record.title) - 1);
+            return true;
+          },
+          &chapterCtx);
       if (!FanqieStore::saveChapters(books[i].bookId, records.get(), chapterCtx.count)) continue;
       books[i].chapterCount = chapterCtx.count;
     }
@@ -465,16 +468,17 @@ Status prepareOpen(const char* epubPath) {
         FanqieProtocol::ProgressRecord record;
         bool found;
       } ctx{meta.bookId, {}, false};
-      FanqieProtocol::parseProgress(body.get(), length,
-                                    [](void* raw, const FanqieProtocol::ProgressRecord& record) {
-                                      auto* state = static_cast<Ctx*>(raw);
-                                      if (strcmp(record.bookId, state->bookId) == 0) {
-                                        state->record = record;
-                                        state->found = true;
-                                      }
-                                      return true;
-                                    },
-                                    &ctx);
+      FanqieProtocol::parseProgress(
+          body.get(), length,
+          [](void* raw, const FanqieProtocol::ProgressRecord& record) {
+            auto* state = static_cast<Ctx*>(raw);
+            if (strcmp(record.bookId, state->bookId) == 0) {
+              state->record = record;
+              state->found = true;
+            }
+            return true;
+          },
+          &ctx);
       if (ctx.found && FanqieProtocol::chooseProgress(meta.dirty, meta.localUnix, ctx.record.readUnix) ==
                            FanqieProtocol::ProgressChoice::ApplyCloud) {
         uint32_t count = 0;
@@ -515,7 +519,16 @@ Status uploadProgress(const char* epubPath) {
   uint16_t pageCount = meta.pageCount;
   readSpine(epubPath, spine, page, pageCount);
   FanqieStore::ChapterRecord chapter;
-  if (!FanqieStore::readChapter(meta.bookId, spine, chapter)) return Status::Failed;
+  if (!FanqieStore::readChapter(meta.bookId, spine, chapter)) {
+    // A card that only has the EPUB has no chapter map yet. Keep the reader
+    // progress already saved on exit and remember the book for the next sync.
+    meta.spine = spine;
+    meta.page = page;
+    meta.pageCount = pageCount;
+    meta.dirty = 1;
+    FanqieStore::saveMeta(meta);
+    return Status::Offline;
+  }
   meta.spine = spine;
   meta.page = page;
   meta.pageCount = pageCount;
@@ -535,12 +548,12 @@ Status uploadProgress(const char* epubPath) {
   char body[256];
   char url[160];
   if (!FanqieProtocol::progressUpdateBody(meta.bookId, chapter.itemId, spine, fraction, meta.localUnix, body,
-                                         sizeof(body)) ||
+                                          sizeof(body)) ||
       !FanqieProtocol::updateProgressUrl(url, sizeof(url)))
     return Status::Failed;
   FanqieNet::Response response;
-  if (!FanqieNet::request(url, "POST", reinterpret_cast<const uint8_t*>(body), strlen(body), "application/json", nullptr,
-                          &jar, nullptr, nullptr, kScratch, response, nullptr)) {
+  if (!FanqieNet::request(url, "POST", reinterpret_cast<const uint8_t*>(body), strlen(body), "application/json",
+                          nullptr, &jar, nullptr, nullptr, kScratch, response, nullptr)) {
     meta.dirty = 1;
     FanqieStore::saveMeta(meta);
     return Status::Failed;

@@ -16,8 +16,17 @@ EPUB_PATH = f"/Fanqie/{BOOK_ID}.epub"
 TITLE = "Fanqie Fixture"
 AUTHOR = "CrossMux"
 CHAPTERS = [
-    ("100", "Cached chapter", "This cached Fanqie chapter is fixture text.\n\nTurn the page to see the second paragraph stay in the existing reader."),
-    ("101", "Unread chapter", ""),
+    (
+        "100",
+        "Cached chapter",
+        "First fixture page of the cached Fanqie book. "
+        "The existing reader should show this sentence before a page turn.",
+    ),
+    (
+        "101",
+        "Second chapter",
+        "Second fixture page. A page turn must replace the first sentence with this one.",
+    ),
 ]
 
 
