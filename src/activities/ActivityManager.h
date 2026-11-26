@@ -142,7 +142,7 @@ class ActivityManager {
   void goToRecentBooks();
   void goToBrowser();
   void goToPlugins();
-  void goToReader(std::string path, bool allowFastInitialRefresh = false);
+  void goToReader(std::string path, bool allowFastInitialRefresh = false, bool fanqiePrepared = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();
   bool goToPostOtaBoot(bool allowAutoPreload);
@@ -165,6 +165,9 @@ class ActivityManager {
 #endif
 #ifdef ENABLE_CHINESE_VERSION
   void goToWeRead();
+#endif
+#ifdef FANQIE_NOVEL
+  void goToFanqie();
 #endif
   void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE);
   MainTabFocus getMainTabFocus() const { return mainTabFocus; }

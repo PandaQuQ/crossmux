@@ -95,6 +95,7 @@ class ReaderActivity : public Activity {
   static std::unique_ptr<ReaderActivity> create(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                 std::string path, bool allowFastInitialRefresh);
 
+  void onGoHome(HomeMenuItem item = HomeMenuItem::NONE) override;
   void onEnter() override;
   void onExit() override;
   void prepareForSleep() override;

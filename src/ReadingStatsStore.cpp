@@ -646,6 +646,21 @@ void ReadingStatsStore::rebuildSummaryCache() const {
   summaryCache = cache;
 }
 
+bool ReadingStatsStore::noteExternalProgress(const std::string& path, const std::string& title,
+                                             const std::string& author, const uint8_t progressPercent) {
+  if (path.empty() || shouldIgnorePath(path)) return false;
+  if (activeSession.active) endSession();
+  const std::string resolvedBookId = BookIdentity::resolveStableBookId(path);
+  const size_t index = getOrCreateBookIndex(path, title, author, "", resolvedBookId);
+  touchBook(index);
+  auto& book = books[0];
+  book.lastProgressPercent = clampPercent(progressPercent);
+  if (!title.empty()) book.title = title;
+  if (!author.empty()) book.author = author;
+  markDirty();
+  return true;
+}
+
 void ReadingStatsStore::beginSession(const std::string& path, const std::string& title, const std::string& author,
                                      const std::string& coverBmpPath, const uint8_t progressPercent,
                                      const std::string& chapterTitle, const uint8_t chapterProgressPercent) {

@@ -1,0 +1,41 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+
+#include "FanqieProtocol.h"
+#include "activities/Activity.h"
+
+class FanqieActivity final : public Activity {
+ public:
+  FanqieActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+      : Activity("Fanqie", renderer, mappedInput) {}
+
+  void onEnter() override;
+  void onExit() override;
+  void loop() override;
+  void render(RenderLock&&) override;
+  bool preventAutoSleep() override;
+
+ private:
+  enum class Screen : uint8_t { Disclaimer, Accounts, Qr, Message, ConfirmLogout };
+
+  Screen screen_ = Screen::Disclaimer;
+  int selected_ = 0;
+  bool confirmArmed_ = false;
+  bool accepted_ = false;
+  uint32_t nextPollAt_ = 0;
+  char token_[96] = {};
+  char message_[96] = {};
+  FanqieProtocol::CookieJar jar_;
+  std::unique_ptr<uint8_t[]> qr_;
+  size_t qrLen_ = 0;
+  int qrWidth_ = 0;
+  int qrHeight_ = 0;
+
+  int itemCount() const;
+  void activate();
+  void startQr();
+  void pollQr();
+  void drawQr(const Rect& safe) const;
+};

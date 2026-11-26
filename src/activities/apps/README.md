@@ -141,7 +141,9 @@ The launcher applies `effectiveHiddenMask()` to combine user visibility and
 configured OPDS servers. The settings toggle reflects the user choice even when
 OPDS is temporarily absent from the menu because no server is configured. App visibility is independent of the UI language and
 content profile. WeRead is visible by default in every language; Chinese Chess
-is hidden by default. Language changes preserve the user's app visibility choices.
+is hidden by default. Fanqie is compiled only into the X4 Pro image
+(`FANQIE_NOVEL`); other environments keep the source but do not link it.
+Language changes preserve the user's app visibility choices.
 See [Chinese support](../../../docs/engineering/chinese-build.md).
 
 ---

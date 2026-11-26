@@ -1,5 +1,10 @@
 #include "ReaderActivity.h"
 
+#ifdef FANQIE_NOVEL
+#include "FanqieStore.h"
+#include "activities/apps/fanqie/FanqieSyncActivity.h"
+#endif
+
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalFrontlight.h>
@@ -163,6 +168,17 @@ void ReaderActivity::flushReaderSession() {
 bool ReaderActivity::handleBackNavigation() {
   return ReaderUtils::handleBackNavigation(mappedInput, activityManager, bookPath.c_str(),
                                            {this, [](void* ctx) { static_cast<ReaderActivity*>(ctx)->onGoHome(); }});
+}
+
+void ReaderActivity::onGoHome(HomeMenuItem item) {
+#ifdef FANQIE_NOVEL
+  FanqieStore::BookMeta meta;
+  if (FanqieStore::findByEpubPath(bookPath.c_str(), meta) &&
+      activityManager.replaceActivityWith<FanqieSyncActivity>(bookPath, FanqieSyncActivity::Mode::Upload, item)) {
+    return;
+  }
+#endif
+  Activity::onGoHome(item);
 }
 
 void ReaderActivity::clearEndOfBookOptionsIfNeeded() {
