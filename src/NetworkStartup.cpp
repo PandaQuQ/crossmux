@@ -6,6 +6,9 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #if !defined(SIMULATOR)
 #include <esp_heap_caps.h>
 #include <sdkconfig.h>
@@ -81,6 +84,19 @@ void prepare(GfxRenderer& renderer) {
   logMemory("after font reclaim");
 }
 
+struct WifiModeRequest {
+  wifi_mode_t mode;
+  TaskHandle_t waiter;
+  bool started;
+};
+
+void wifiModeTask(void* raw) {
+  auto* req = static_cast<WifiModeRequest*>(raw);
+  req->started = WiFi.mode(req->mode);
+  xTaskNotifyGive(req->waiter);
+  vTaskDelete(nullptr);
+}
+
 bool setMode(GfxRenderer& renderer, const wifi_mode_t mode) {
   if (mode != WIFI_OFF && !bleinput::stop()) {
     LOG_ERR("NET", "Bluetooth stop incomplete; refusing WiFi startup");
@@ -88,9 +104,32 @@ bool setMode(GfxRenderer& renderer, const wifi_mode_t mode) {
   }
   logMemory("after BLE stop");
   prepare(renderer);
-  const bool started = WiFi.mode(mode);
-  logMemory(started ? "WiFi mode ready" : "WiFi mode failed");
-  return started;
+  // WiFi.mode blocks the caller. On a machine with no radio it never returns,
+  // which freezes the UI task inside the system Wi-Fi screen. Run it beside
+  // the UI and give up if the driver does not answer.
+  static WifiModeRequest req;
+  req.mode = mode;
+  req.waiter = xTaskGetCurrentTaskHandle();
+  req.started = false;
+  ulTaskNotifyTake(pdTRUE, 0);
+#if defined(configNUM_CORES) && configNUM_CORES > 1
+  constexpr BaseType_t core = 1;
+#else
+  constexpr BaseType_t core = 0;
+#endif
+  if (xTaskCreatePinnedToCore(wifiModeTask, "wifiMode", 8192, &req, 2, nullptr, core) != pdPASS) {
+    LOG_ERR("NET", "WiFi mode task create failed");
+    const bool started = WiFi.mode(mode);
+    logMemory(started ? "WiFi mode ready" : "WiFi mode failed");
+    return started;
+  }
+  if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8000)) == 0) {
+    LOG_ERR("NET", "WiFi mode timed out");
+    logMemory("WiFi mode timed out");
+    return false;
+  }
+  logMemory(req.started ? "WiFi mode ready" : "WiFi mode failed");
+  return req.started;
 }
 
 }  // namespace NetworkStartup
