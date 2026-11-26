@@ -65,7 +65,16 @@ void FanqieActivity::onEnter() {
   screen_ = accepted_ ? Screen::Accounts : Screen::Disclaimer;
   selected_ = 0;
   if (!FanqieStore::ensureRoot()) LOG_ERR("FQ", "fanqie storage unavailable");
+  if (screen_ == Screen::Accounts) reloadAccounts();
   requestUpdate();
+}
+
+void FanqieActivity::reloadAccounts() {
+  accountCount_ = 0;
+  activeAccount_ = -1;
+  if (!FanqieStore::loadNicknames(nicknames_, FanqieStore::kMaxAccounts, accountCount_, activeAccount_)) {
+    LOG_ERR("FQ", "account list unreadable");
+  }
 }
 
 void FanqieActivity::onExit() {
@@ -77,13 +86,7 @@ void FanqieActivity::onExit() {
 
 bool FanqieActivity::preventAutoSleep() { return screen_ == Screen::Qr; }
 
-int FanqieActivity::itemCount() const {
-  char nicknames[FanqieStore::kMaxAccounts][FanqieStore::kNickname];
-  int count = 0;
-  int active = -1;
-  FanqieStore::loadNicknames(nicknames, FanqieStore::kMaxAccounts, count, active);
-  return count + 2 + (count > 0 ? 1 : 0);
-}
+int FanqieActivity::itemCount() const { return accountCount_ + 2 + (accountCount_ > 0 ? 1 : 0); }
 
 void FanqieActivity::startQr() {
   qr_ = makeUniqueNoThrow<uint8_t[]>(16 * 1024);
@@ -118,6 +121,7 @@ void FanqieActivity::pollQr() {
     screen_ = Screen::Accounts;
     jar_.clear();
     qr_.reset();
+    reloadAccounts();
     return;
   }
   screen_ = Screen::Message;
@@ -134,10 +138,12 @@ void FanqieActivity::activate() {
     }
     accepted_ = true;
     screen_ = Screen::Accounts;
+    reloadAccounts();
     return;
   }
   if (screen_ == Screen::Message) {
     screen_ = Screen::Accounts;
+    reloadAccounts();
     return;
   }
   if (screen_ == Screen::ConfirmLogout) {
@@ -154,6 +160,7 @@ void FanqieActivity::activate() {
       }
     }
     screen_ = Screen::Accounts;
+    reloadAccounts();
     selected_ = 0;
     return;
   }
@@ -171,6 +178,7 @@ void FanqieActivity::activate() {
   FanqieStore::loadAccounts(accounts.get(), count, active);
   if (selected_ < count) {
     FanqieStore::saveAccounts(accounts.get(), count, selected_);
+    reloadAccounts();
     requestUpdate();
     return;
   }
@@ -198,8 +206,10 @@ void FanqieActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (screen_ == Screen::Accounts || screen_ == Screen::Disclaimer)
       activityManager.goHome();
-    else
+    else {
       screen_ = Screen::Accounts;
+      reloadAccounts();
+    }
     requestUpdate();
     return;
   }
@@ -257,10 +267,8 @@ void FanqieActivity::render(RenderLock&&) {
     renderer.drawText(UI_12_FONT_ID, safe.x, y0,
                       screen_ == Screen::ConfirmLogout ? tr(STR_FANQIE_LOGOUT_CONFIRM) : message_, true);
   } else {
-    char nicknames[FanqieStore::kMaxAccounts][FanqieStore::kNickname] = {};
-    int count = 0;
-    int active = -1;
-    FanqieStore::loadNicknames(nicknames, FanqieStore::kMaxAccounts, count, active);
+    const int count = accountCount_;
+    const int active = activeAccount_;
     int row = 0;
     auto line = [&](const char* text) {
       const bool selected = row == selected_;
@@ -270,7 +278,7 @@ void FanqieActivity::render(RenderLock&&) {
     };
     for (int i = 0; i < count; ++i) {
       char label[64];
-      snprintf(label, sizeof(label), "%s%s", nicknames[i], i == active ? " *" : "");
+      snprintf(label, sizeof(label), "%s%s", nicknames_[i], i == active ? " *" : "");
       line(label);
     }
     line(tr(STR_FANQIE_ADD_ACCOUNT));

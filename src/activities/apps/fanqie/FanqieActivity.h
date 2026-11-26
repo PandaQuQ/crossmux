@@ -4,12 +4,12 @@
 #include <memory>
 
 #include "FanqieProtocol.h"
+#include "FanqieStore.h"
 #include "activities/Activity.h"
 
 class FanqieActivity final : public Activity {
  public:
-  FanqieActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Fanqie", renderer, mappedInput) {}
+  FanqieActivity(GfxRenderer& renderer, MappedInputManager& mappedInput) : Activity("Fanqie", renderer, mappedInput) {}
 
   void onEnter() override;
   void onExit() override;
@@ -27,6 +27,9 @@ class FanqieActivity final : public Activity {
   uint32_t nextPollAt_ = 0;
   char token_[96] = {};
   char message_[96] = {};
+  char nicknames_[FanqieStore::kMaxAccounts][FanqieStore::kNickname] = {};
+  int accountCount_ = 0;
+  int activeAccount_ = -1;
   FanqieProtocol::CookieJar jar_;
   std::unique_ptr<uint8_t[]> qr_;
   size_t qrLen_ = 0;
@@ -34,6 +37,7 @@ class FanqieActivity final : public Activity {
   int qrHeight_ = 0;
 
   int itemCount() const;
+  void reloadAccounts();
   void activate();
   void startQr();
   void pollQr();
