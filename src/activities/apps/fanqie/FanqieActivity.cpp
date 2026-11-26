@@ -78,10 +78,10 @@ void FanqieActivity::onExit() {
 bool FanqieActivity::preventAutoSleep() { return screen_ == Screen::Qr; }
 
 int FanqieActivity::itemCount() const {
-  FanqieStore::Account accounts[FanqieStore::kMaxAccounts];
+  char nicknames[FanqieStore::kMaxAccounts][FanqieStore::kNickname];
   int count = 0;
   int active = -1;
-  FanqieStore::loadAccounts(accounts, count, active);
+  FanqieStore::loadNicknames(nicknames, FanqieStore::kMaxAccounts, count, active);
   return count + 2 + (count > 0 ? 1 : 0);
 }
 
@@ -142,13 +142,15 @@ void FanqieActivity::activate() {
   }
   if (screen_ == Screen::ConfirmLogout) {
     if (selected_ == 0) {
-      FanqieStore::Account accounts[FanqieStore::kMaxAccounts];
+      auto accounts = makeUniqueNoThrow<FanqieStore::Account[]>(FanqieStore::kMaxAccounts);
       int count = 0;
       int active = -1;
-      if (FanqieStore::loadAccounts(accounts, count, active) && active >= 0 && active < count) {
+      if (!accounts) {
+        LOG_ERR("FQ", "OOM: logout");
+      } else if (FanqieStore::loadAccounts(accounts.get(), count, active) && active >= 0 && active < count) {
         for (int i = active; i + 1 < count; ++i) accounts[i] = accounts[i + 1];
         --count;
-        FanqieStore::saveAccounts(accounts, count, count > 0 ? 0 : -1);
+        FanqieStore::saveAccounts(accounts.get(), count, count > 0 ? 0 : -1);
       }
     }
     screen_ = Screen::Accounts;
@@ -156,12 +158,19 @@ void FanqieActivity::activate() {
     return;
   }
   if (screen_ != Screen::Accounts) return;
-  FanqieStore::Account accounts[FanqieStore::kMaxAccounts];
+  auto accounts = makeUniqueNoThrow<FanqieStore::Account[]>(FanqieStore::kMaxAccounts);
+  if (!accounts) {
+    LOG_ERR("FQ", "OOM: accounts");
+    screen_ = Screen::Message;
+    snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_LOGIN_FAILED));
+    requestUpdate();
+    return;
+  }
   int count = 0;
   int active = -1;
-  FanqieStore::loadAccounts(accounts, count, active);
+  FanqieStore::loadAccounts(accounts.get(), count, active);
   if (selected_ < count) {
-    FanqieStore::saveAccounts(accounts, count, selected_);
+    FanqieStore::saveAccounts(accounts.get(), count, selected_);
     requestUpdate();
     return;
   }
@@ -248,10 +257,10 @@ void FanqieActivity::render(RenderLock&&) {
     renderer.drawText(UI_12_FONT_ID, safe.x, y0,
                       screen_ == Screen::ConfirmLogout ? tr(STR_FANQIE_LOGOUT_CONFIRM) : message_, true);
   } else {
-    FanqieStore::Account accounts[FanqieStore::kMaxAccounts];
+    char nicknames[FanqieStore::kMaxAccounts][FanqieStore::kNickname] = {};
     int count = 0;
     int active = -1;
-    FanqieStore::loadAccounts(accounts, count, active);
+    FanqieStore::loadNicknames(nicknames, FanqieStore::kMaxAccounts, count, active);
     int row = 0;
     auto line = [&](const char* text) {
       const bool selected = row == selected_;
@@ -261,7 +270,7 @@ void FanqieActivity::render(RenderLock&&) {
     };
     for (int i = 0; i < count; ++i) {
       char label[64];
-      snprintf(label, sizeof(label), "%s%s", accounts[i].nickname, i == active ? " *" : "");
+      snprintf(label, sizeof(label), "%s%s", nicknames[i], i == active ? " *" : "");
       line(label);
     }
     line(tr(STR_FANQIE_ADD_ACCOUNT));

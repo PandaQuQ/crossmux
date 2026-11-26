@@ -86,10 +86,15 @@ login API.
   does not replace the percent the reader already wrote.
 - The X4 Pro has no confirm key. The disclaimer and the result message accept
   a screen tap. The account list already activates the tapped row.
-- The capacitive Home key is handled by `ActivityManager` as `goHome()`. It
-  does not call `ReaderActivity::onGoHome()`, so the Fanqie upload activity
-  does not run on that gesture. The reader still writes the shelf percent
-  before it exits.
+- The capacitive Home key calls `ReaderActivity::handleHomeGesture()`, which
+  uses the same `onGoHome()` path as Back. A Fanqie book therefore runs the
+  upload activity on the way home. The reader still writes its own shelf
+  percent in `onExit()` before that upload reads `progress.bin`.
+- Account records are not kept on the task stack. Each cookie is 1536 bytes,
+  and four of them plus a font draw overflow the 16KB render-task stack. That
+  overflow rewrote `renderingMutex` so it was no longer a semaphore; the next
+  `xSemaphoreTake` asserted `uxItemSize == 0` in `queue.c` and rebooted the
+  device. `RenderLock::peek` also no longer calls `xQueuePeek` on that mutex.
 - A successful `pio run -e x4pro`, a first paint, or a button ACK is not
   functional acceptance. The browser emulator does not simulate Wi-Fi, so it
   cannot prove login or sync. It also cannot replace a device check of radio

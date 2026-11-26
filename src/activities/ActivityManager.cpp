@@ -72,7 +72,7 @@ static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 extern HalGPIO gpio;
 ActivityManager::ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
-  assert(renderingMutex != nullptr && "Failed to create rendering mutex");
+  if (!renderingMutex) LOG_ERR("ACT", "rendering mutex create failed");
   stackActivities.reserve(10);
 }
 
@@ -865,8 +865,13 @@ void ActivityManager::requestUpdateAndWait() {
 // RenderLock
 
 RenderLock::RenderLock(Mode mode) {
-  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
-  assert((mode == Mode::Try || isLocked) && "Blocking render lock acquisition failed");
+  auto* mutex = activityManager.renderingMutex;
+  if (!mutex) {
+    LOG_ERR("ACT", "rendering mutex missing");
+    return;
+  }
+  isLocked = xSemaphoreTake(mutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
+  if (mode != Mode::Try && !isLocked) LOG_ERR("ACT", "rendering mutex take failed");
 }
 
 RenderLock::RenderLock(Activity&) : RenderLock(Mode::Blocking) {}
@@ -892,4 +897,10 @@ void RenderLock::unlock() {
  * @return true if renderingMutex is busy, otherwise false.
  *
  */
-bool RenderLock::peek() { return xQueuePeek(activityManager.renderingMutex, NULL, 0) != pdTRUE; };
+bool RenderLock::peek() {
+  // Do not xQueuePeek a mutex. Peek treats the holder/recursion union as queue
+  // pointers. Ask for the holder instead; a null holder means the lock is free.
+  auto* mutex = activityManager.renderingMutex;
+  if (!mutex) return true;
+  return xSemaphoreGetMutexHolder(mutex) != nullptr;
+}

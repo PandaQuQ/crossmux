@@ -48,6 +48,9 @@ struct BookMeta {
 
 bool ensureRoot();
 bool loadAccounts(Account* accounts, int& count, int& active);
+// Nicknames only. A full Account is 1.5KB of cookie; four of them do not fit on
+// the 16KB render-task stack (that overflow corrupts the render mutex).
+bool loadNicknames(char nicknames[][kNickname], int cap, int& count, int& active);
 bool saveAccounts(const Account* accounts, int count, int active);
 bool loadActiveAccount(Account& account);
 

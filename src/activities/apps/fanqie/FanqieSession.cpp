@@ -302,17 +302,21 @@ Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token) {
 
 bool storeAccount(const FanqieProtocol::CookieJar& jar) {
   if (!jar.has("sessionid")) return false;
-  FanqieStore::Account accounts[FanqieStore::kMaxAccounts];
+  auto accounts = makeUniqueNoThrow<FanqieStore::Account[]>(FanqieStore::kMaxAccounts);
+  if (!accounts) {
+    LOG_ERR("FQ", "OOM: store account");
+    return false;
+  }
   int count = 0;
   int active = -1;
-  if (!FanqieStore::loadAccounts(accounts, count, active)) return false;
+  if (!FanqieStore::loadAccounts(accounts.get(), count, active)) return false;
   if (count >= FanqieStore::kMaxAccounts) return false;
   FanqieStore::Account& account = accounts[count];
   snprintf(account.nickname, sizeof(account.nickname), "Fanqie %d", count + 1);
   strncpy(account.cookie, jar.header, sizeof(account.cookie) - 1);
   active = count;
   ++count;
-  return FanqieStore::saveAccounts(accounts, count, active);
+  return FanqieStore::saveAccounts(accounts.get(), count, active);
 }
 
 Status syncShelf() {

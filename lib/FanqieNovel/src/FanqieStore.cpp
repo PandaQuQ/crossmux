@@ -10,6 +10,7 @@ constexpr int kStoreOmitted = 0;
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <cstdio>
 #include <cstring>
@@ -123,31 +124,64 @@ bool loadAccounts(Account* accounts, int& count, int& active) {
   return true;
 }
 
+bool loadNicknames(char nicknames[][kNickname], int cap, int& count, int& active) {
+  count = 0;
+  active = -1;
+  if (!nicknames || cap <= 0) return false;
+  AccountHeader header;
+  HalFile file;
+  if (!Storage.openFileForRead("FQ", kAccounts, file)) return true;
+  if (file.read(&header, sizeof(header)) != sizeof(header) || header.magic != kAccountMagic ||
+      header.version != kAccountVersion || header.count > kMaxAccounts)
+    return false;
+  active = header.active;
+  for (uint16_t i = 0; i < header.count; ++i) {
+    char nickname[kNickname];
+    uint16_t cookieLen = 0;
+    if (file.read(nickname, kNickname) != kNickname || file.read(&cookieLen, sizeof(cookieLen)) != 2) return false;
+    if (cookieLen >= kCookie) return false;
+    if (cookieLen && !file.seek(file.position() + cookieLen)) return false;
+    if (static_cast<int>(i) < cap) memcpy(nicknames[i], nickname, kNickname);
+  }
+  count = header.count < cap ? header.count : cap;
+  if (active >= count) active = count > 0 ? 0 : -1;
+  return true;
+}
+
 bool saveAccounts(const Account* accounts, int count, int active) {
   if (!accounts || count < 0 || count > kMaxAccounts || !ensureRoot()) return false;
-  uint8_t buffer[sizeof(AccountHeader) + kMaxAccounts * (kNickname + 2 + kCookie)];
+  constexpr size_t kBytes = sizeof(AccountHeader) + kMaxAccounts * (kNickname + 2 + kCookie);
+  auto buffer = makeUniqueNoThrow<uint8_t[]>(kBytes);
+  if (!buffer) {
+    LOG_ERR("FQ", "OOM: account file");
+    return false;
+  }
   AccountHeader header;
   header.count = static_cast<uint16_t>(count);
   header.active = static_cast<int16_t>(active);
-  memcpy(buffer, &header, sizeof(header));
+  memcpy(buffer.get(), &header, sizeof(header));
   size_t used = sizeof(header);
   for (int i = 0; i < count; ++i) {
-    memcpy(buffer + used, accounts[i].nickname, kNickname);
+    memcpy(buffer.get() + used, accounts[i].nickname, kNickname);
     used += kNickname;
     const uint16_t cookieLen = static_cast<uint16_t>(strnlen(accounts[i].cookie, kCookie - 1));
-    memcpy(buffer + used, &cookieLen, sizeof(cookieLen));
+    memcpy(buffer.get() + used, &cookieLen, sizeof(cookieLen));
     used += sizeof(cookieLen);
-    memcpy(buffer + used, accounts[i].cookie, cookieLen);
+    memcpy(buffer.get() + used, accounts[i].cookie, cookieLen);
     used += cookieLen;
   }
-  return writeAll(kAccounts, buffer, used);
+  return writeAll(kAccounts, buffer.get(), used);
 }
 
 bool loadActiveAccount(Account& account) {
-  Account accounts[kMaxAccounts];
+  auto accounts = makeUniqueNoThrow<Account[]>(kMaxAccounts);
+  if (!accounts) {
+    LOG_ERR("FQ", "OOM: active account");
+    return false;
+  }
   int count = 0;
   int active = -1;
-  if (!loadAccounts(accounts, count, active) || active < 0 || active >= count) return false;
+  if (!loadAccounts(accounts.get(), count, active) || active < 0 || active >= count) return false;
   account = accounts[active];
   return account.used();
 }

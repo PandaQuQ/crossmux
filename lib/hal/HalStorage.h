@@ -97,6 +97,9 @@ class HalStorage {
     ~StorageLock();
     StorageLock(const StorageLock&) = delete;
     StorageLock& operator=(const StorageLock&) = delete;
+
+   private:
+    bool held_ = false;
   };
 
  private:

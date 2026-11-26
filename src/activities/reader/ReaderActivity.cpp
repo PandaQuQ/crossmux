@@ -170,6 +170,11 @@ bool ReaderActivity::handleBackNavigation() {
                                            {this, [](void* ctx) { static_cast<ReaderActivity*>(ctx)->onGoHome(); }});
 }
 
+bool ReaderActivity::handleHomeGesture() {
+  onGoHome();
+  return true;
+}
+
 void ReaderActivity::onGoHome(HomeMenuItem item) {
 #ifdef FANQIE_NOVEL
   FanqieStore::BookMeta meta;
