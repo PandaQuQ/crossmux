@@ -11,7 +11,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <PNGdec.h>
 
 #include <algorithm>
 #include <cstring>
@@ -21,9 +20,16 @@
 #include "FanqieSession.h"
 #include "FanqieStore.h"
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
-#include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+// PNGdec's zlib header defines `local` as static, which breaks C++ in the Wi-Fi UI.
+// clang-format off
+#include <PNGdec.h>
+#ifdef local
+#undef local
+#endif
+#include "activities/network/WifiSelectionActivity.h"
+// clang-format on
 
 namespace {
 
