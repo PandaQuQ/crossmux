@@ -5,7 +5,6 @@
 #include <HalMemory.h>
 #include <Logging.h>
 #include <WiFi.h>
-
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 

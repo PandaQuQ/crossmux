@@ -80,7 +80,7 @@ void WifiSelectionActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
   auto* self = static_cast<WifiSelectionActivity*>(user);
   self->closeRouting();
   self->app.clearTapFlash();
-  if (self->state == WifiSelectionState::SCANNING) WiFi.scanDelete();
+  if (self->state == WifiSelectionState::SCANNING && self->radioStarted) WiFi.scanDelete();
   if (self->state == WifiSelectionState::CONNECTING || self->state == WifiSelectionState::AUTO_CONNECTING) {
     WiFi.disconnect();
   }
@@ -204,9 +204,15 @@ void WifiSelectionActivity::onEnter() {
   app.on(ACTION_RETURN, &WifiSelectionActivity::onReturnEvent, this);
   app.setScreen(&WifiSelectionActivity::listScreen, this);
 
-  // Trigger first update to show scanning message
+  // Show the screen before touching the driver. esp_wifi_init never returns
+  // when the machine has no radio, and that would freeze Cancel.
+  radioStarted = false;
+  radioStartAt = millis() + 2000;
   requestUpdate();
+}
 
+void WifiSelectionActivity::beginEntryRadio() {
+  const size_t savedCredentialCount = WIFI_STORE.getCredentialCount();
   // Attempt to auto-connect to known networks. Try the last successful
   // network first for speed, then scan and try any visible saved networks by
   // signal strength. The user can interrupt this and show the scan result.
@@ -233,9 +239,12 @@ void WifiSelectionActivity::onExit() {
 
   LOG_DBG("WIFI", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
-  // Stop any ongoing WiFi scan
-  LOG_DBG("WIFI", "Deleting WiFi scan...");
-  WiFi.scanDelete();
+  // Stop any ongoing WiFi scan. scanDelete before the driver starts can
+  // enter the same stuck init as WiFi.mode on a machine with no radio.
+  if (radioStarted) {
+    LOG_DBG("WIFI", "Deleting WiFi scan...");
+    WiFi.scanDelete();
+  }
   LOG_DBG("WIFI", "Free heap after scanDelete: %d bytes", ESP.getFreeHeap());
 
   // Note: We do NOT disconnect WiFi here - the parent activity
@@ -670,6 +679,10 @@ void WifiSelectionActivity::checkConnectionStatus() {
 }
 
 void WifiSelectionActivity::loop() {
+  if (!radioStarted && millis() >= radioStartAt) {
+    radioStarted = true;
+    beginEntryRadio();
+  }
   switch (state) {
     case WifiSelectionState::NETWORK_ERROR:
     case WifiSelectionState::SCANNING:
@@ -697,7 +710,7 @@ void WifiSelectionActivity::loop() {
   // Check scan progress
   if (state == WifiSelectionState::SCANNING) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-      WiFi.scanDelete();
+      if (radioStarted) WiFi.scanDelete();
       onComplete(false);
       return;
     }
