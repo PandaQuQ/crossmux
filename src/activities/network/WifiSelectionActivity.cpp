@@ -707,8 +707,10 @@ void WifiSelectionActivity::loop() {
     return;
   }
 
-  // Check scan progress
+  // Check scan progress. Before the driver starts, scanComplete is a false
+  // failure and would replace the cancel screen.
   if (state == WifiSelectionState::SCANNING) {
+    if (!radioStarted) return;
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       if (radioStarted) WiFi.scanDelete();
       onComplete(false);
