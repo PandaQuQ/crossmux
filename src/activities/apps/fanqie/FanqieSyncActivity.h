@@ -16,22 +16,20 @@ class FanqieSyncActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override { return phase_ != Phase::Done; }
+  bool preventAutoSleep() override { return phase_ == Phase::Wifi || phase_ == Phase::Work; }
 
  private:
-  enum class Phase : uint8_t { Connect, Work, Done };
+  enum class Phase : uint8_t { Wifi, Work, Offline, Done };
 
   std::string path_;
   Mode mode_ = Mode::Open;
   HomeMenuItem homeItem_ = HomeMenuItem::NONE;
-  Phase phase_ = Phase::Connect;
-  bool ownsWifi_ = false;
+  Phase phase_ = Phase::Wifi;
   bool worked_ = false;
-  uint32_t connectStartedAt_ = 0;
   char message_[96] = {};
 
-  bool beginWifi();
-  void stopWifi();
+  void launchWifi();
+  void showOffline();
   void runWork();
   void leave();
 };

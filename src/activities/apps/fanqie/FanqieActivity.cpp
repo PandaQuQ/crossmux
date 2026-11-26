@@ -17,9 +17,11 @@
 #include <cstring>
 #include <string>
 
+#include "FanqieNet.h"
 #include "FanqieSession.h"
 #include "FanqieStore.h"
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -81,7 +83,47 @@ void FanqieActivity::onExit() {
   qr_.reset();
   qrLen_ = 0;
   jar_.clear();
+  if (radioUsed_) FanqieNet::releaseRadio();
   Activity::onExit();
+}
+
+void FanqieActivity::showOffline() {
+  online_ = OnlineAction::None;
+  screen_ = Screen::Message;
+  snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
+  FanqieNet::releaseRadio();
+  requestUpdate();
+}
+
+void FanqieActivity::runOnline() {
+  const OnlineAction action = online_;
+  online_ = OnlineAction::None;
+  if (action == OnlineAction::Login)
+    startQr();
+  else if (action == OnlineAction::Shelf)
+    startActivityForResultWith<FanqieSyncActivity>([](const ActivityResult&) {}, std::string(),
+                                                   FanqieSyncActivity::Mode::Shelf);
+  requestUpdate();
+}
+
+void FanqieActivity::beginOnline(const OnlineAction action) {
+  online_ = action;
+  radioUsed_ = true;
+  if (FanqieNet::connected()) {
+    runOnline();
+    return;
+  }
+  // The system screen auto-connects a saved network, then offers the list.
+  if (!startActivityForResultWith<WifiSelectionActivity>([this](const ActivityResult& result) {
+        if (result.isCancelled || !FanqieNet::connected()) {
+          showOffline();
+          return;
+        }
+        runOnline();
+      })) {
+    LOG_ERR("FQ", "OOM: wifi selection");
+    showOffline();
+  }
 }
 
 bool FanqieActivity::preventAutoSleep() { return screen_ == Screen::Qr; }
@@ -183,13 +225,11 @@ void FanqieActivity::activate() {
     return;
   }
   if (selected_ == count) {
-    startQr();
-    requestUpdate();
+    beginOnline(OnlineAction::Login);
     return;
   }
   if (selected_ == count + 1) {
-    startActivityForResultWith<FanqieSyncActivity>([](const ActivityResult&) {}, std::string(),
-                                                   FanqieSyncActivity::Mode::Shelf);
+    beginOnline(OnlineAction::Shelf);
     return;
   }
   if (count > 0 && selected_ == count + 2) {

@@ -19,11 +19,14 @@ class FanqieActivity final : public Activity {
 
  private:
   enum class Screen : uint8_t { Disclaimer, Accounts, Qr, Message, ConfirmLogout };
+  enum class OnlineAction : uint8_t { None, Login, Shelf };
 
   Screen screen_ = Screen::Disclaimer;
   int selected_ = 0;
   bool confirmArmed_ = false;
   bool accepted_ = false;
+  bool radioUsed_ = false;
+  OnlineAction online_ = OnlineAction::None;
   uint32_t nextPollAt_ = 0;
   char token_[96] = {};
   char message_[96] = {};
@@ -39,6 +42,9 @@ class FanqieActivity final : public Activity {
   int itemCount() const;
   void reloadAccounts();
   void activate();
+  void beginOnline(OnlineAction action);
+  void runOnline();
+  void showOffline();
   void startQr();
   void pollQr();
   void drawQr(const Rect& safe) const;

@@ -13,10 +13,10 @@ constexpr int kNetOmitted = 0;
 #include <Memory.h>
 #include <WeReadHttpClient.h>
 #include <WiFi.h>
+#include <strings.h>
 
 #include <cstring>
 #include <string>
-#include <strings.h>
 
 namespace FanqieNet {
 namespace {
@@ -43,6 +43,12 @@ bool onData(const uint8_t* data, size_t len, WriteState* state) {
 }  // namespace
 
 bool connected() { return WiFi.status() == WL_CONNECTED; }
+
+void releaseRadio() {
+  if (WiFi.getMode() == WIFI_MODE_NULL) return;
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_OFF);
+}
 
 bool request(const char* url, const char* method, const uint8_t* body, size_t bodyLen, const char* contentType,
              const char* contentEncoding, const FanqieProtocol::CookieJar* cookies,
@@ -83,10 +89,10 @@ bool request(const char* url, const char* method, const uint8_t* body, size_t bo
   options.timeoutMs = 20000;
   int status = 0;
   const auto result = WeReadHttpClient::request(
-      url, options,
-      [&](const uint8_t* data, size_t len) { return onData(data, len, &state); },
+      url, options, [&](const uint8_t* data, size_t len) { return onData(data, len, &state); },
       [&](const char* name, const char* value) {
-        if (updateCookies && name && value && strcasecmp(name, "set-cookie") == 0) updateCookies->absorbSetCookie(value);
+        if (updateCookies && name && value && strcasecmp(name, "set-cookie") == 0)
+          updateCookies->absorbSetCookie(value);
       },
       status);
   file.flush();

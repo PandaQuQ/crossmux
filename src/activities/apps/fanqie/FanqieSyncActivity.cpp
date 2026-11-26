@@ -9,14 +9,12 @@
 #include <HalDisplay.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <WiFi.h>
 
 #include <cstring>
 
 #include "FanqieNet.h"
 #include "FanqieSession.h"
-#include "NetworkStartup.h"
-#include "WifiCredentialStore.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -26,43 +24,51 @@ void FanqieSyncActivity::onEnter() {
   if (mode_ == Mode::Upload) text = tr(STR_FANQIE_UPLOADING);
   if (mode_ == Mode::Shelf) text = tr(STR_FANQIE_SYNCING);
   snprintf(message_, sizeof(message_), "%s", text);
-  if (!FanqieNet::connected()) beginWifi();
-  phase_ = Phase::Connect;
-  connectStartedAt_ = millis();
+  if (FanqieNet::connected())
+    phase_ = Phase::Work;
+  else
+    launchWifi();
   requestUpdate();
 }
 
 void FanqieSyncActivity::onExit() {
-  stopWifi();
+  FanqieNet::releaseRadio();
   Activity::onExit();
 }
 
-bool FanqieSyncActivity::beginWifi() {
-  if (WIFI_STORE.getCredentialCount() == 0) WIFI_STORE.loadFromFile();
-  const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
-  if (!credential) return false;
-  NetworkStartup::prepare(renderer);
-  if (!NetworkStartup::setMode(renderer, WIFI_STA)) return false;
-  WiFi.setSleep(false);
-  if (credential->password.empty()) WiFi.begin(credential->ssid.c_str());
-  else WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
-  ownsWifi_ = true;
-  return true;
+void FanqieSyncActivity::showOffline() {
+  snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
+  phase_ = Phase::Offline;
+  FanqieNet::releaseRadio();
+  requestUpdate();
 }
 
-void FanqieSyncActivity::stopWifi() {
-  if (!ownsWifi_) return;
-  WiFi.disconnect(false);
-  WiFi.mode(WIFI_OFF);
-  ownsWifi_ = false;
+void FanqieSyncActivity::launchWifi() {
+  phase_ = Phase::Wifi;
+  // WifiSelectionActivity tries the last saved network, then the system list.
+  if (!startActivityForResultWith<WifiSelectionActivity>([this](const ActivityResult& result) {
+        if (result.isCancelled || !FanqieNet::connected()) {
+          showOffline();
+          return;
+        }
+        phase_ = Phase::Work;
+        requestUpdate();
+      })) {
+    LOG_ERR("FQ", "OOM: wifi selection");
+    showOffline();
+  }
 }
 
 void FanqieSyncActivity::runWork() {
   FanqieSession::Status status = FanqieSession::Status::Failed;
-  if (mode_ == Mode::Shelf) status = FanqieSession::syncShelf();
-  else if (mode_ == Mode::Upload) status = FanqieSession::uploadProgress(path_.c_str());
-  else status = FanqieSession::prepareOpen(path_.c_str());
-  if (status == FanqieSession::Status::Offline) snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
+  if (mode_ == Mode::Shelf)
+    status = FanqieSession::syncShelf();
+  else if (mode_ == Mode::Upload)
+    status = FanqieSession::uploadProgress(path_.c_str());
+  else
+    status = FanqieSession::prepareOpen(path_.c_str());
+  if (status == FanqieSession::Status::Offline)
+    snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
   else if (status == FanqieSession::Status::NeedAccount)
     snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_NO_ACCOUNT));
   else if (status == FanqieSession::Status::Failed)
@@ -84,9 +90,10 @@ void FanqieSyncActivity::leave() {
 }
 
 void FanqieSyncActivity::loop() {
-  if (phase_ == Phase::Connect) {
-    if (!ownsWifi_ || FanqieNet::connected() || millis() - connectStartedAt_ > 12000) phase_ = Phase::Work;
-    else return;
+  if (phase_ == Phase::Wifi) return;
+  if (phase_ == Phase::Offline) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasScreenTouchReleased()) leave();
+    return;
   }
   if (phase_ == Phase::Work && !worked_) {
     worked_ = true;

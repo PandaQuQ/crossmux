@@ -1,10 +1,10 @@
 #pragma once
 
-#include "FanqieCrypto.h"
-#include "FanqieProtocol.h"
-
 #include <cstddef>
 #include <cstdint>
+
+#include "FanqieCrypto.h"
+#include "FanqieProtocol.h"
 
 namespace FanqieNet {
 
@@ -15,6 +15,8 @@ struct Response {
 };
 
 bool connected();
+// Drop the station the way other network activities do when they leave.
+void releaseRadio();
 bool request(const char* url, const char* method, const uint8_t* body, size_t bodyLen, const char* contentType,
              const char* contentEncoding, const FanqieProtocol::CookieJar* cookies,
              const FanqieCrypto::SignHeaders* sign, const char* accept, const char* destPath, Response& response,

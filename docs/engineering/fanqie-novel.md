@@ -70,10 +70,12 @@ login API.
   notice. A failed download leaves the placeholder page and does not invent
   chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
-- Wi-Fi is started only inside the Fanqie account or sync activity and is
-  turned off when that activity exits. Reading itself does not keep the radio
-  up. Exit upload therefore runs only when a connection is already up;
-  otherwise it waits for the next open.
+- Login, shelf sync, opening a book, and exit upload use
+  `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
+  That screen auto-connects a saved network, then shows the system network
+  list. Cancel returns to the Fanqie offline message. `FanqieNet::releaseRadio`
+  turns the station off when the Fanqie activity exits. Reading does not keep
+  the radio up.
 - A card may contain `/Fanqie/<bookId>.epub` without
   `/.crosspoint/fanqie/index.bin`. The browser emulator refuses to import a
   root `.crosspoint` directory, and a real card can lose that index too.
