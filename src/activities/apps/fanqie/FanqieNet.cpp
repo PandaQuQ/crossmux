@@ -54,6 +54,15 @@ void heapLine(char* out, size_t cap) {
            static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
+// Same browser identity WeRead's requestOnce sends. Origin and Referer follow
+// the Fanqie URL; everything else in the client setup stays WeRead's.
+constexpr char kUserAgent[] =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 "
+    "Safari/537.36 Edg/135.0.0.0";
+
+bool acceptLoginStatus(const int status) { return status != 401 && status != 403; }
+
 void copyPath(const char* url, char* out, size_t cap) {
   const char* start = strstr(url, "://");
   const char* path = start ? strchr(start + 3, '/') : url;
@@ -71,6 +80,80 @@ void releaseRadio() {
   if (WiFi.getMode() == WIFI_MODE_NULL) return;
   WiFi.disconnect(false);
   WiFi.mode(WIFI_OFF);
+}
+
+bool requestMemory(const char* url, const FanqieProtocol::CookieJar* cookies, FanqieProtocol::CookieJar* updateCookies,
+                   char* body, size_t bodyCap, size_t& bodyLen, Response& response, const AbortFn abort,
+                   void* abortContext) {
+  response = {};
+  bodyLen = 0;
+  if (body && bodyCap > 0) body[0] = '\0';
+  // WeReadHttpClient::request checks networkReady() itself (STA + WL_CONNECTED).
+  // No localIP, RSSI, or card file: those ran before wolfSSL connect and are
+  // not part of WeRead's login GET.
+  if (!url || !body || bodyCap < 2 || !WeReadHttpClient::networkReady()) {
+    response.failure = Failure::Network;
+    return false;
+  }
+  WeReadHttpClient::Header headers[6] = {};
+  size_t headerCount = 0;
+  headers[headerCount++] = {"User-Agent", kUserAgent};
+  headers[headerCount++] = {"Accept", "application/json, text/plain, */*"};
+  headers[headerCount++] = {"Origin", "https://fanqienovel.com"};
+  headers[headerCount++] = {"Referer", "https://fanqienovel.com/"};
+  if (cookies && cookies->header[0]) headers[headerCount++] = {"Cookie", cookies->header};
+
+  WeReadHttpClient::RequestOptions options;
+  options.method = "GET";
+  options.headers = headers;
+  options.headerCount = headerCount;
+  options.timeoutMs = 20000;
+  options.readBuffer = ioBuffer;
+  options.readBufferSize = sizeof(ioBuffer);
+  options.acceptStatus = acceptLoginStatus;
+  options.shouldAbort = abort;
+  options.abortContext = abortContext;
+
+  struct Sink {
+    char* body;
+    size_t cap;
+    size_t used = 0;
+    bool overflow = false;
+  } sink{body, bodyCap};
+  int status = 0;
+  const auto result = WeReadHttpClient::request(
+      url, options,
+      [&](const uint8_t* data, size_t len) {
+        if (!data || sink.overflow) return false;
+        if (sink.used + len + 1 > sink.cap) {
+          sink.overflow = true;
+          return false;
+        }
+        memcpy(sink.body + sink.used, data, len);
+        sink.used += len;
+        sink.body[sink.used] = '\0';
+        return true;
+      },
+      [&](const char* name, const char* value) {
+        if (updateCookies && name && value && strcasecmp(name, "set-cookie") == 0)
+          updateCookies->absorbSetCookie(value);
+      },
+      status);
+  bodyLen = sink.used;
+  response.status = status;
+  response.bytes = sink.used;
+  response.network = result != WeReadHttpClient::Result::NetworkError;
+  if (result == WeReadHttpClient::Result::Cancelled) {
+    response.failure = Failure::Cancelled;
+    return false;
+  }
+  if (sink.overflow) {
+    response.failure = Failure::Memory;
+    return false;
+  }
+  if (result == WeReadHttpClient::Result::Ok && status >= 200 && status < 300) return true;
+  response.failure = status > 0 ? Failure::Http : Failure::Network;
+  return false;
 }
 
 bool request(const char* url, const char* method, const uint8_t* body, size_t bodyLen, const char* contentType,

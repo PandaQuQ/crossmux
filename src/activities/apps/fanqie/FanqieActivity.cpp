@@ -180,19 +180,13 @@ void FanqieActivity::scheduleLogin() {
 }
 
 void FanqieActivity::runLoginStep() {
-  // One settled frame, then the request. WeRead does not call
-  // NetworkStartup::prepare in the step: on this boot the check did not free
-  // anything (102KB free, 53KB largest) and ppTask aborted during the next paint.
-  snprintf(step_, sizeof(step_), "step: tls");
-  FanqieLog::line("tls");
-  paintingStep_ = true;
-  requestUpdateAndWait();
-  paintingStep_ = false;
-  {
-    RenderLock lock(*this);
-    if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
-    startQr();
-  }
+  // WeRead paints the connecting screen in startJob, returns, and issues the
+  // login GET on the next loop. The card line is the one extra: a power loss
+  // during TLS still leaves the step, because RTC does not survive POWERON.
+  FanqieLog::persist("tls");
+  RenderLock lock(*this);
+  if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+  startQr();
 }
 
 bool FanqieActivity::pollAbort() {

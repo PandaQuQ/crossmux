@@ -148,6 +148,13 @@ void line(const char* text) {
   store(text, buf, sizeof(buf));
 }
 
+void persist(const char* text) {
+  if (!text || !text[0]) return;
+  char buf[kText];
+  store(text, buf, sizeof(buf));
+  if (!appendLine(buf)) LOG_ERR("FQ", "crumb not on card");
+}
+
 void noteBoot() {
   const bool keep = valid();
   const uint32_t count = keep ? trail.count : 0;

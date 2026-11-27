@@ -6,6 +6,10 @@ namespace FanqieLog {
 // must not be touched from a Wi-Fi callback or while a refresh is in progress.
 void line(const char* text);
 
+// Same record, then one appended line on the card. Call it only after the panel
+// refresh has returned, and never while holding RenderLock.
+void persist(const char* text);
+
 // Optional. Called after the step is stored. The activity uses it to paint the
 // step. It must not call line() again.
 void setShow(void (*fn)(const char* text));

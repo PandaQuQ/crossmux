@@ -87,14 +87,14 @@ login API.
   change without notice. A failed download leaves the placeholder page and
   does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
-- After Wi-Fi returns, login paints `step: enter` once and returns to
-  `loop()`. The next turn paints `step: tls` and only then does the request,
-  under `RenderLock` with the font cache cleared, which is WeRead's per-step
-  shape. `NetworkStartup::prepare` is not called there: its "before font
-  reclaim" line does not free memory unless internal free is under 64KB or
-  the largest block is under 32KB. The name lookup is left to the HTTP client.
-  Steps stay in RTC memory. The card is appended only at boot, and a directory
-  that already exists is not treated as a failed `mkdir`.
+- After Wi-Fi returns, login paints the connecting screen once and returns
+  to `loop()`, which is what WeRead's `startJob` does. The next turn appends
+  `tls` to `fanqie.log` (a power loss keeps that line; RTC does not), takes
+  `RenderLock`, clears the font cache, and calls `WeReadHttpClient::request`
+  the same way WeRead's `requestOnce` does: stack session, 20 second timeout,
+  the 4KB read buffer, and a RAM body. It does not call `WiFi.localIP`,
+  `WiFi.RSSI`, or open the card during that handshake. `NetworkStartup::prepare`
+  is not called in the step.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network

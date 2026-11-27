@@ -283,23 +283,27 @@ Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, 
   char url[512];
   FanqieNet::Response response;
   FanqieLog::line("qr fetch");
+  // The live get_qrcode JSON is a few KB (PNG base64 about 2.6KB). Held in RAM
+  // for the call, the way WeRead feeds its login JSON parser. Not written to
+  // the card while the socket is open.
+  constexpr size_t kBodyCap = 12 * 1024;
+  auto body = makeUniqueNoThrow<char[]>(kBodyCap);
+  if (!body) {
+    FanqieLog::line("qr body oom");
+    rememberFailure(failure, 0, nullptr);
+    return Status::Memory;
+  }
+  size_t length = 0;
   if (!FanqieProtocol::qrStartUrl(url, sizeof(url)) ||
-      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar,
-                          abort, abortContext)) {
+      !FanqieNet::requestMemory(url, &jar, &jar, body.get(), kBodyCap, length, response, abort, abortContext)) {
     Status status = fromTransport(response, failure);
-    if (status == Status::Http) {
-      std::unique_ptr<char[]> body;
-      size_t length = 0;
-      if (loadJson(kScratch, body, length) && failure &&
-          FanqieProtocol::copyLoginHint(body.get(), length, failure->hint, sizeof(failure->hint)))
-        status = Status::Server;
-    }
+    if (status == Status::Http && failure &&
+        FanqieProtocol::copyLoginHint(body.get(), length, failure->hint, sizeof(failure->hint)))
+      status = Status::Server;
     return status;
   }
-  std::unique_ptr<char[]> body;
-  size_t length = 0;
   uint32_t expire = 0;
-  if (!loadJson(kScratch, body, length)) {
+  if (length == 0) {
     FanqieLog::line("qr body unreadable");
     rememberFailure(failure, response.status, nullptr);
     return Status::Parse;
@@ -345,8 +349,11 @@ Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token, bool (*abort
   char url[640];
   if (!FanqieProtocol::qrPollUrl(token, url, sizeof(url))) return Status::Failed;
   FanqieNet::Response response;
-  if (!FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar,
-                          abort, abortContext)) {
+  constexpr size_t kPollCap = 4096;
+  auto body = makeUniqueNoThrow<char[]>(kPollCap);
+  if (!body) return Status::Memory;
+  size_t length = 0;
+  if (!FanqieNet::requestMemory(url, &jar, &jar, body.get(), kPollCap, length, response, abort, abortContext)) {
     char line[64];
     snprintf(line, sizeof(line), "qr poll fail status=%d", response.status);
     FanqieLog::line(line);
@@ -358,9 +365,6 @@ Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token, bool (*abort
       return Status::Failed;
     return Status::Ok;
   }
-  std::unique_ptr<char[]> body;
-  size_t length = 0;
-  if (!loadJson(kScratch, body, length)) return Status::Failed;
   const auto poll = FanqieProtocol::parseLoginPoll(body.get(), length);
   if (poll == FanqieProtocol::LoginPoll::Expired) return Status::Expired;
   if (poll == FanqieProtocol::LoginPoll::Failed || poll == FanqieProtocol::LoginPoll::Cancelled) return Status::Failed;
