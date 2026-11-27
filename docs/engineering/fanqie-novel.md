@@ -65,10 +65,26 @@ login API.
 
 ## Limits
 
-- Live login, shelf download, and progress upload were not executed from this
-  workspace. Signature acceptance and the progress unit can change without
-  notice. A failed download leaves the placeholder page and does not invent
-  chapter text.
+- A direct request to `get_qrcode` with `aid=2503` returned HTTP 200 and a
+  JSON body whose `data.qrcode` is raw PNG base64 (about 2.6KB) and whose
+  `message` is `success`. The firmware does not send `Accept-Encoding`, and
+  the same request without it is plain JSON. The X4 Pro image uses wolfSSL
+  with `setInsecure()`, so that build does not check the passport certificate
+  and does not need SNTP for this call. The login request previously never
+  left the device: `WeReadHttpClient` rejects a call that has no read buffer,
+  and Fanqie did not provide one, so the screen said login failed as soon as
+  Wi-Fi was up. The HTML login page is optional. Its longest header line was
+  1841 bytes; the read buffer is 4096 bytes.
+- When login fails, the screen names the class of failure (memory, network or
+  TLS, HTTP status, compressed body, parse, QR image, or a short server
+  message). The same lines, without cookies or tokens, are appended to
+  `/.crosspoint/fanqie/fanqie.log`. At 64KB the current file is renamed to
+  `fanqie.log.1`, the same way a panic is written to the card, except this
+  file is kept across boots and rotated instead of replaced every time.
+- Shelf download and progress upload were not executed against a signed-in
+  account from this workspace. Signature acceptance and the progress unit can
+  change without notice. A failed download leaves the placeholder page and
+  does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.

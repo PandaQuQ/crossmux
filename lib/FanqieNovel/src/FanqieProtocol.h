@@ -57,6 +57,8 @@ using BookIdFn = bool (*)(void* ctx, const char* bookId);
 
 bool parseQrStart(const char* json, size_t len, char* token, size_t tokenCap, uint8_t* png, size_t pngCap,
                   size_t& pngLen, uint32_t& expireUnix);
+// Short server text for a failed login body. Empty when the body says success.
+bool copyLoginHint(const char* json, size_t len, char* out, size_t cap);
 LoginPoll parseLoginPoll(const char* json, size_t len);
 bool parseProgress(const char* json, size_t len, ProgressFn fn, void* ctx);
 bool parseShelfIds(const char* json, size_t len, BookIdFn fn, void* ctx);

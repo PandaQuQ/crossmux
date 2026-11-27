@@ -8,10 +8,10 @@ constexpr int kProtocolOmitted = 0;
 
 #else
 
-#include "FanqieCrypto.h"
-
 #include <cstdio>
 #include <cstring>
+
+#include "FanqieCrypto.h"
 
 namespace FanqieProtocol {
 namespace {
@@ -51,8 +51,10 @@ bool readJsonString(const char* p, const char* end, const char*& value, size_t& 
   ++p;
   value = p;
   while (p < end && *p != '"') {
-    if (*p == '\\' && p + 1 < end) p += 2;
-    else ++p;
+    if (*p == '\\' && p + 1 < end)
+      p += 2;
+    else
+      ++p;
   }
   if (p >= end) return false;
   valueLen = static_cast<size_t>(p - value);
@@ -66,9 +68,12 @@ bool unescape(const char* in, size_t len, char* out, size_t cap) {
     char c = in[i];
     if (c == '\\' && i + 1 < len) {
       const char n = in[++i];
-      if (n == 'n') c = '\n';
-      else if (n == 't') c = '\t';
-      else c = n;
+      if (n == 'n')
+        c = '\n';
+      else if (n == 't')
+        c = '\t';
+      else
+        c = n;
     }
     if (o + 1 >= cap) return false;
     out[o++] = c;
@@ -120,8 +125,10 @@ bool readNumber(const char* p, const char* end, double& number, uint32_t& asUint
       break;
     }
     if (buf[i] < '0' || buf[i] > '9') continue;
-    if (asUint > (UINT32_MAX - static_cast<uint32_t>(buf[i] - '0')) / 10) isUint = false;
-    else asUint = asUint * 10 + static_cast<uint32_t>(buf[i] - '0');
+    if (asUint > (UINT32_MAX - static_cast<uint32_t>(buf[i] - '0')) / 10)
+      isUint = false;
+    else
+      asUint = asUint * 10 + static_cast<uint32_t>(buf[i] - '0');
   }
   // Small decimal parser, enough for progress fractions and unix times.
   double sign = buf[0] == '-' ? -1 : 1;
@@ -134,7 +141,8 @@ bool readNumber(const char* p, const char* end, double& number, uint32_t& asUint
       dot = true;
       continue;
     }
-    if (!dot) whole = whole * 10 + (buf[i] - '0');
+    if (!dot)
+      whole = whole * 10 + (buf[i] - '0');
     else {
       place *= 10;
       frac = frac * 10 + (buf[i] - '0');
@@ -296,6 +304,16 @@ bool parseQrStart(const char* json, size_t len, char* token, size_t tokenCap, ui
   return token[0] != '\0';
 }
 
+bool copyLoginHint(const char* json, size_t len, char* out, size_t cap) {
+  if (!out || cap < 2) return false;
+  out[0] = '\0';
+  if (!json || !len) return false;
+  if (findJsonString(json, len, "description", out, cap) && out[0]) return true;
+  if (findJsonString(json, len, "message", out, cap) && out[0] && strcmp(out, "success") != 0) return true;
+  out[0] = '\0';
+  return false;
+}
+
 LoginPoll parseLoginPoll(const char* json, size_t len) {
   if (!json || !len) return LoginPoll::Failed;
   char status[32];
@@ -438,7 +456,8 @@ bool parseChapters(const char* json, size_t len, ChapterFn fn, void* ctx) {
     size_t objectTo = after;
     int depth = 0;
     for (; objectTo < len; ++objectTo) {
-      if (json[objectTo] == '{') ++depth;
+      if (json[objectTo] == '{')
+        ++depth;
       else if (json[objectTo] == '}') {
         if (depth == 0) {
           ++objectTo;
@@ -600,7 +619,9 @@ bool qrPollUrl(const char* token, char* out, size_t outCap) {
                    token, "&next=%2F");
 }
 
-bool progressUrl(char* out, size_t outCap) { return appendUrl(out, outCap, "https://fanqienovel.com/api/reader/book/progress"); }
+bool progressUrl(char* out, size_t outCap) {
+  return appendUrl(out, outCap, "https://fanqienovel.com/api/reader/book/progress");
+}
 
 bool updateProgressUrl(char* out, size_t outCap) {
   return appendUrl(out, outCap, "https://fanqienovel.com/api/reader/book/update_progress");
@@ -623,8 +644,8 @@ bool directoryUrl(const char* bookId, char* out, size_t outCap) {
 
 bool webChapterUrl(const char* bookId, const char* itemId, char* out, size_t outCap) {
   if (!idOk(bookId) || !idOk(itemId)) return false;
-  const int written = snprintf(out, outCap, "https://fanqienovel.com/api/reader/chapter/content?book_id=%s&item_id=%s",
-                               bookId, itemId);
+  const int written =
+      snprintf(out, outCap, "https://fanqienovel.com/api/reader/chapter/content?book_id=%s&item_id=%s", bookId, itemId);
   return written > 0 && static_cast<size_t>(written) < outCap;
 }
 

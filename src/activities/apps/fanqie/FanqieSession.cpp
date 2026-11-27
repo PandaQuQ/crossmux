@@ -21,6 +21,7 @@ constexpr int kSessionOmitted = 0;
 
 #include "FanqieCrypto.h"
 #include "FanqieEpub.h"
+#include "FanqieLog.h"
 #include "FanqieNet.h"
 #include "FanqieStore.h"
 #include "ReadingStatsStore.h"
@@ -256,26 +257,89 @@ void remember(const FanqieStore::BookMeta& meta, int percent) {
 
 }  // namespace
 
-Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, uint8_t* png, size_t pngCap,
-                  size_t& pngLen) {
+void rememberFailure(Failure* failure, int http, const char* hint) {
+  if (!failure) return;
+  failure->http = http;
+  failure->hint[0] = '\0';
+  if (!hint || !hint[0]) return;
+  snprintf(failure->hint, sizeof(failure->hint), "%s", hint);
+}
+
+Status fromTransport(const FanqieNet::Response& response, Failure* failure) {
+  rememberFailure(failure, response.status, nullptr);
+  if (response.failure == FanqieNet::Failure::Memory) return Status::Memory;
+  if (response.failure == FanqieNet::Failure::Http) return Status::Http;
+  return Status::Network;
+}
+
+Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, std::unique_ptr<uint8_t[]>& png,
+                  size_t& pngLen, Failure* failure) {
+  png.reset();
+  pngLen = 0;
+  if (failure) *failure = {};
   if (!FanqieNet::connected()) return Status::Offline;
   jar.clear();
   char url[512];
   FanqieNet::Response response;
-  if (!FanqieProtocol::loginPageUrl(url, sizeof(url)) ||
-      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, "text/html", kScratch, response,
-                          &jar))
-    return Status::Failed;
+  // The HTML login page does not set the passport cookie. get_qrcode does.
+  // A failure here must not hide the QR request.
+  if (FanqieProtocol::loginPageUrl(url, sizeof(url))) {
+    FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, "text/html", kScratch, response, &jar);
+  }
   if (!FanqieProtocol::qrStartUrl(url, sizeof(url)) ||
-      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar))
-    return Status::Failed;
+      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar)) {
+    Status status = fromTransport(response, failure);
+    if (status == Status::Http) {
+      std::unique_ptr<char[]> body;
+      size_t length = 0;
+      if (loadJson(kScratch, body, length) && failure &&
+          FanqieProtocol::copyLoginHint(body.get(), length, failure->hint, sizeof(failure->hint)))
+        status = Status::Server;
+    }
+    return status;
+  }
   std::unique_ptr<char[]> body;
   size_t length = 0;
   uint32_t expire = 0;
-  if (!loadJson(kScratch, body, length) ||
-      !FanqieProtocol::parseQrStart(body.get(), length, token, tokenCap, png, pngCap, pngLen, expire))
-    return Status::Failed;
-  return pngLen > 8 ? Status::Ok : Status::Failed;
+  if (!loadJson(kScratch, body, length)) {
+    FanqieLog::line("qr body unreadable");
+    rememberFailure(failure, response.status, nullptr);
+    return Status::Parse;
+  }
+  if (length >= 2 && static_cast<uint8_t>(body[0]) == 0x1f && static_cast<uint8_t>(body[1]) == 0x8b) {
+    FanqieLog::line("qr body gzip");
+    rememberFailure(failure, response.status, nullptr);
+    return Status::Gzip;
+  }
+  constexpr size_t kPngCap = 16 * 1024;
+  png = makeUniqueNoThrow<uint8_t[]>(kPngCap);
+  if (!png) {
+    FanqieLog::line("qr image oom");
+    rememberFailure(failure, response.status, nullptr);
+    return Status::Memory;
+  }
+  if (!FanqieProtocol::parseQrStart(body.get(), length, token, tokenCap, png.get(), kPngCap, pngLen, expire)) {
+    char hint[40];
+    const bool hinted = FanqieProtocol::copyLoginHint(body.get(), length, hint, sizeof(hint));
+    char line[96];
+    snprintf(line, sizeof(line), "qr parse fail bytes=%u head=%02x%02x hinted=%u", static_cast<unsigned>(length),
+             static_cast<unsigned>(static_cast<uint8_t>(body[0])), static_cast<unsigned>(static_cast<uint8_t>(body[1])),
+             hinted ? 1U : 0U);
+    FanqieLog::line(line);
+    rememberFailure(failure, response.status, hinted ? hint : nullptr);
+    return hinted ? Status::Server : Status::Parse;
+  }
+  if (pngLen <= 8) {
+    char line[64];
+    snprintf(line, sizeof(line), "qr image short bytes=%u", static_cast<unsigned>(pngLen));
+    FanqieLog::line(line);
+    rememberFailure(failure, response.status, nullptr);
+    return Status::Qr;
+  }
+  char line[64];
+  snprintf(line, sizeof(line), "qr ok png=%u", static_cast<unsigned>(pngLen));
+  FanqieLog::line(line);
+  return Status::Ok;
 }
 
 Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token) {
@@ -283,8 +347,12 @@ Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token) {
   char url[640];
   if (!FanqieProtocol::qrPollUrl(token, url, sizeof(url))) return Status::Failed;
   FanqieNet::Response response;
-  if (!FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar))
-    return Status::Failed;
+  if (!FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar)) {
+    char line[64];
+    snprintf(line, sizeof(line), "qr poll fail status=%d", response.status);
+    FanqieLog::line(line);
+    return fromTransport(response, nullptr);
+  }
   if (jar.has("sessionid")) {
     char progress[128];
     if (!FanqieProtocol::progressUrl(progress, sizeof(progress)) || !getToFile(progress, &jar, nullptr))

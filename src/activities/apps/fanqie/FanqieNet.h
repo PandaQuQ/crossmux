@@ -8,9 +8,13 @@
 
 namespace FanqieNet {
 
+enum class Failure : uint8_t { None, Memory, Network, Http };
+
 struct Response {
   int status = 0;
   bool network = false;
+  Failure failure = Failure::None;
+  size_t bytes = 0;
   char path[64] = {};
 };
 

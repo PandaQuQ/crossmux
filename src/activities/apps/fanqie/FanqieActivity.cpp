@@ -16,6 +16,7 @@
 #include <cstring>
 #include <string>
 
+#include "FanqieLog.h"
 #include "FanqieNet.h"
 #include "FanqieSession.h"
 #include "FanqieStore.h"
@@ -101,6 +102,49 @@ void FanqieActivity::showOffline() {
   requestUpdate();
 }
 
+void FanqieActivity::showFailure(const FanqieSession::Status status, const FanqieSession::Failure& failure) {
+  screen_ = Screen::Message;
+  const char* text = tr(STR_FANQIE_LOGIN_FAILED);
+  switch (status) {
+    case FanqieSession::Status::Memory:
+      text = tr(STR_FANQIE_ERR_MEMORY);
+      break;
+    case FanqieSession::Status::Network:
+      text = tr(STR_FANQIE_ERR_NETWORK);
+      break;
+    case FanqieSession::Status::Http:
+      snprintf(message_, sizeof(message_), "%s %d", tr(STR_FANQIE_ERR_HTTP), failure.http);
+      return;
+    case FanqieSession::Status::Parse:
+      text = tr(STR_FANQIE_ERR_PARSE);
+      break;
+    case FanqieSession::Status::Gzip:
+      text = tr(STR_FANQIE_ERR_GZIP);
+      break;
+    case FanqieSession::Status::Qr:
+      text = tr(STR_FANQIE_ERR_QR);
+      break;
+    case FanqieSession::Status::Server: {
+      char hint[40];
+      snprintf(hint, sizeof(hint), "%s", failure.hint);
+      for (char* cursor = hint; *cursor; ++cursor) {
+        if (static_cast<unsigned char>(*cursor) < 0x20) *cursor = ' ';
+      }
+      if (hint[0])
+        snprintf(message_, sizeof(message_), "%s %s", tr(STR_FANQIE_ERR_SERVER), hint);
+      else
+        snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_ERR_SERVER));
+      return;
+    }
+    case FanqieSession::Status::Expired:
+      text = tr(STR_FANQIE_LOGIN_EXPIRED);
+      break;
+    default:
+      break;
+  }
+  snprintf(message_, sizeof(message_), "%s", text);
+}
+
 void FanqieActivity::runOnline() {
   const OnlineAction action = online_;
   online_ = OnlineAction::None;
@@ -137,24 +181,24 @@ bool FanqieActivity::preventAutoSleep() { return screen_ == Screen::Qr; }
 int FanqieActivity::itemCount() const { return accountCount_ + 2 + (accountCount_ > 0 ? 1 : 0); }
 
 void FanqieActivity::startQr() {
-  qr_ = makeUniqueNoThrow<uint8_t[]>(16 * 1024);
-  if (!qr_) {
-    LOG_ERR("FQ", "OOM: login qr");
-    screen_ = Screen::Message;
-    snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_LOGIN_FAILED));
-    return;
-  }
-  const auto status = FanqieSession::startLogin(jar_, token_, sizeof(token_), qr_.get(), 16 * 1024, qrLen_);
+  FanqieSession::Failure failure;
+  const auto status = FanqieSession::startLogin(jar_, token_, sizeof(token_), qr_, qrLen_, &failure);
   if (status == FanqieSession::Status::Offline) {
     screen_ = Screen::Message;
     snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
     return;
   }
   if (status != FanqieSession::Status::Ok) {
-    screen_ = Screen::Message;
-    snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_LOGIN_FAILED));
+    showFailure(status, failure);
     return;
   }
+  PNG png;
+  if (png.openRAM(qr_.get(), static_cast<int>(qrLen_), blitQr) != 0) {
+    FanqieLog::line("qr png header rejected");
+    showFailure(FanqieSession::Status::Qr, {});
+    return;
+  }
+  png.close();
   screen_ = Screen::Qr;
   nextPollAt_ = millis() + 3000;
 }
@@ -172,9 +216,7 @@ void FanqieActivity::pollQr() {
     reloadAccounts();
     return;
   }
-  screen_ = Screen::Message;
-  snprintf(message_, sizeof(message_), "%s",
-           status == FanqieSession::Status::Expired ? tr(STR_FANQIE_LOGIN_EXPIRED) : tr(STR_FANQIE_LOGIN_FAILED));
+  showFailure(status, {});
 }
 
 void FanqieActivity::activate() {

@@ -1,10 +1,10 @@
-#include "FanqieProtocol.h"
-
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include "FanqieProtocol.h"
 
 namespace {
 
@@ -36,6 +36,36 @@ bool takeId(void* ctx, const char* id) {
 }
 
 }  // namespace
+
+TEST(FanqieProtocol, QrStartMatchesLivePassportShape) {
+  // Shape returned by fanqienovel.com/passport/web/get_qrcode/ on 2026-11-27:
+  // message success, data.qrcode is raw PNG base64, data.token, expire_time.
+  // The 1x1 PNG stands in for the live image. No live token is stored here.
+  const char* json =
+      "{\"data\":{\"copywriting\":\"{\\\"desc\\\":\\\"safe\\\"}\",\"error_code\":0,\"expire_time\":1795742517,"
+      "\"qrcode\":\"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\","
+      "\"token\":\"tok-live\"},\"message\":\"success\"}";
+  char token[32];
+  uint8_t png[128];
+  size_t pngLen = 0;
+  uint32_t expire = 0;
+  ASSERT_TRUE(FanqieProtocol::parseQrStart(json, strlen(json), token, sizeof(token), png, sizeof(png), pngLen, expire));
+  EXPECT_STREQ(token, "tok-live");
+  EXPECT_EQ(expire, 1795742517u);
+  ASSERT_GE(pngLen, 8u);
+  EXPECT_EQ(png[0], 0x89);
+  EXPECT_EQ(png[1], 'P');
+  EXPECT_EQ(png[2], 'N');
+  EXPECT_EQ(png[3], 'G');
+  char hint[40];
+  EXPECT_FALSE(FanqieProtocol::copyLoginHint(json, strlen(json), hint, sizeof(hint)));
+
+  const char* rejected = "{\"data\":{\"description\":\"csrf\",\"token\":\"tok\"},\"message\":\"error\"}";
+  EXPECT_FALSE(
+      FanqieProtocol::parseQrStart(rejected, strlen(rejected), token, sizeof(token), png, sizeof(png), pngLen, expire));
+  ASSERT_TRUE(FanqieProtocol::copyLoginHint(rejected, strlen(rejected), hint, sizeof(hint)));
+  EXPECT_STREQ(hint, "csrf");
+}
 
 TEST(FanqieProtocol, QrStartAndPoll) {
   const char* json =
@@ -71,15 +101,15 @@ TEST(FanqieProtocol, ProgressShelfAndChapters) {
   EXPECT_FALSE(sink.records[0].tenThousand);
   EXPECT_EQ(sink.records[0].readUnix, 1700000100u);
 
-  const char* shelf =
-      "{\"data\":{\"book_shelf_info\":[{\"book_id\":\"11\"},{\"book_id\":\"22\"}]}}";
+  const char* shelf = "{\"data\":{\"book_shelf_info\":[{\"book_id\":\"11\"},{\"book_id\":\"22\"}]}}";
   IdSink ids;
   ASSERT_TRUE(FanqieProtocol::parseShelfIds(shelf, strlen(shelf), takeId, &ids));
   ASSERT_EQ(ids.ids.size(), 2u);
   EXPECT_EQ(ids.ids[1], "22");
 
   const char* detail =
-      "{\"data\":{\"detail_list\":[{\"book_id\":\"11\",\"book_name\":\"Story\",\"author\":\"Ada\",\"serial_count\":10}]}}";
+      "{\"data\":{\"detail_list\":[{\"book_id\":\"11\",\"book_name\":\"Story\",\"author\":\"Ada\",\"serial_count\":10}]"
+      "}}";
   FanqieProtocol::ShelfBook books[2];
   int count = 0;
   ASSERT_TRUE(FanqieProtocol::parseBookDetails(detail, strlen(detail), books, 2, count));
@@ -89,7 +119,8 @@ TEST(FanqieProtocol, ProgressShelfAndChapters) {
   EXPECT_EQ(books[0].chapterCount, 10u);
 
   const char* directory =
-      "{\"data\":{\"chapterListWithVolume\":[[{\"itemId\":\"100\",\"title\":\"One\"},{\"itemId\":\"101\",\"title\":\"Two\"}]]}}";
+      "{\"data\":{\"chapterListWithVolume\":[[{\"itemId\":\"100\",\"title\":\"One\"},{\"itemId\":\"101\",\"title\":"
+      "\"Two\"}]]}}";
   ChapterSink chapters;
   ASSERT_TRUE(FanqieProtocol::parseChapters(directory, strlen(directory), takeChapter, &chapters));
   ASSERT_EQ(chapters.records.size(), 2u);

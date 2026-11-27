@@ -29,7 +29,7 @@ class FanqieActivity final : public Activity {
   OnlineAction online_ = OnlineAction::None;
   uint32_t nextPollAt_ = 0;
   char token_[96] = {};
-  char message_[96] = {};
+  char message_[128] = {};
   char nicknames_[FanqieStore::kMaxAccounts][FanqieStore::kNickname] = {};
   int accountCount_ = 0;
   int activeAccount_ = -1;
@@ -45,6 +45,7 @@ class FanqieActivity final : public Activity {
   void beginOnline(OnlineAction action);
   void runOnline();
   void showOffline();
+  void showFailure(FanqieSession::Status status, const FanqieSession::Failure& failure);
   void startQr();
   void pollQr();
   void drawQr(const Rect& safe) const;
