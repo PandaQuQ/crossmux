@@ -6,6 +6,7 @@
 #include "FanqieProtocol.h"
 #include "FanqieStore.h"
 #include "activities/Activity.h"
+#include "activities/apps/fanqie/FanqieSession.h"
 
 class FanqieActivity final : public Activity {
  public:
