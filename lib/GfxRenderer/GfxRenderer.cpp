@@ -311,6 +311,8 @@ void GfxRenderer::FrameBufferLoan::end() {
     // Only reachable if the framebuffer never existed, which begin() already
     // asserts against; kept as a backstop since running blind helps nobody.
     LOG_ERR("GFX", "Framebuffer restore failed - restarting");
+    extern void fanqieNoteRestart(const char* why);
+    fanqieNoteRestart("restart:framebuffer");
     ESP.restart();
   }
 }

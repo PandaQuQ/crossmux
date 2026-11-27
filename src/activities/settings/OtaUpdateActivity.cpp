@@ -16,6 +16,7 @@
 #include "ReadingStatsStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "activities/apps/fanqie/FanqieLog.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/SubpageLayout.h"
 #include "components/UITheme.h"
@@ -700,6 +701,7 @@ void OtaUpdateActivity::loop() {
       return;
     }
     case State::ShuttingDown:
+      fanqieNoteRestart("restart:ota");
       ESP.restart();
       return;
     case State::WifiSelection:

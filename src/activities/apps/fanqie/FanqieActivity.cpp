@@ -70,8 +70,25 @@ int blitQr(PNGDRAW* draw) {
 
 }  // namespace
 
+FanqieActivity* FanqieActivity::active_ = nullptr;
+
+void FanqieActivity::showLoggedStep(const char* step) {
+  if (active_) active_->applyStep(step);
+}
+
+void FanqieActivity::applyStep(const char* step) {
+  snprintf(step_, sizeof(step_), "step: %s", step ? step : "");
+  if (!netBusy_ || paintingStep_ || screen_ == Screen::Qr) return;
+  paintingStep_ = true;
+  screen_ = Screen::Message;
+  requestUpdateAndWait();
+  paintingStep_ = false;
+}
+
 void FanqieActivity::onEnter() {
   Activity::onEnter();
+  active_ = this;
+  FanqieLog::setShow(&FanqieActivity::showLoggedStep);
   confirmArmed_ = !mappedInput.isPressed(MappedInputManager::Button::Confirm);
   accepted_ = Storage.exists(kAccepted);
   screen_ = accepted_ ? Screen::Accounts : Screen::Disclaimer;
@@ -90,6 +107,8 @@ void FanqieActivity::reloadAccounts() {
 }
 
 void FanqieActivity::onExit() {
+  if (active_ == this) active_ = nullptr;
+  FanqieLog::setShow(nullptr);
   qr_.reset();
   qrLen_ = 0;
   jar_.clear();
@@ -149,27 +168,25 @@ void FanqieActivity::showFailure(const FanqieSession::Status status, const Fanqi
 }
 
 void FanqieActivity::scheduleLogin() {
-  // Written and flushed before any radio work, matching the breadcrumb contract.
-  FanqieLog::line("enter login");
   netPhase_ = NetPhase::Login;
   netBusy_ = true;
   screen_ = Screen::Message;
   snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_CONNECTING));
-  // Paint the status and let that refresh finish before TLS. WeRead does the
-  // same with requestUpdateAndWait, then performs the request on a later loop.
-  requestUpdateAndWait();
-  FanqieLog::line("connecting painted");
+  // line() stores the step in RTC and paints it. It does not touch the card.
+  FanqieLog::line("enter");
+  FanqieLog::line("painted");
 }
 
 void FanqieActivity::runLoginStep() {
   NetworkStartup::prepare(renderer);
   {
-    // One protocol step under the render lock, so the panel refresh cannot run
-    // beside the handshake. This is WeReadActivity::stepOperation.
     RenderLock lock(*this);
     if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
-    startQr();
   }
+  // The handshake and the response file stay outside the render lock. X4 Pro's
+  // panel is on SPI and the card is on SDMMC; holding the lock across SD I/O
+  // still stalls the refresh task on the storage mutex.
+  startQr();
 }
 
 bool FanqieActivity::pollAbort() {
@@ -417,6 +434,9 @@ void FanqieActivity::render(RenderLock&&) {
   } else if (screen_ == Screen::Message || screen_ == Screen::ConfirmLogout) {
     renderer.drawText(UI_12_FONT_ID, safe.x, y0,
                       screen_ == Screen::ConfirmLogout ? tr(STR_FANQIE_LOGOUT_CONFIRM) : message_, true);
+    if (screen_ == Screen::Message && step_[0]) {
+      renderer.drawText(UI_10_FONT_ID, safe.x, y0 + renderer.getLineHeight(UI_12_FONT_ID) + 8, step_, true);
+    }
   } else {
     const int count = accountCount_;
     const int active = activeAccount_;

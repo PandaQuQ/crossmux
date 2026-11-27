@@ -2,6 +2,8 @@
 
 #if !FANQIE_NOVEL
 
+extern "C" void fanqieNoteRestart(const char* why) { (void)why; }
+
 namespace fanqie_internal {
 constexpr int kLogOmitted = 0;
 }
@@ -23,20 +25,41 @@ constexpr char kDir[] = "/.crosspoint/fanqie";
 constexpr char kLog[] = "/.crosspoint/fanqie/fanqie.log";
 constexpr char kPrevious[] = "/.crosspoint/fanqie/fanqie.log.1";
 constexpr size_t kMaxBytes = 64 * 1024;
+constexpr uint32_t kMagic = 0xF401BEEFu;
+constexpr int kSlots = 12;
+constexpr int kText = 48;
 
-bool keyAt(const char* text, const char* key) {
-  for (; *key; ++text, ++key) {
-    if (tolower(static_cast<unsigned char>(*text)) != *key) return false;
-  }
-  return true;
+struct Trail {
+  uint32_t magic;
+  uint32_t count;
+  char text[kSlots][kText];
+};
+
+// Survives esp_restart / ESP.restart. A power loss leaves this as garbage.
+RTC_NOINIT_ATTR Trail trail;
+
+void (*show_)(const char*) = nullptr;
+
+bool valid() { return trail.magic == kMagic && trail.count < 100000u; }
+
+void ensure() {
+  if (valid()) return;
+  memset(&trail, 0, sizeof(trail));
+  trail.magic = kMagic;
 }
 
 void scrub(char* text) {
   static constexpr const char* kKeys[] = {"cookie", "token", "sessionid", "csrf", "qrcode"};
   for (char* cursor = text; *cursor; ++cursor) {
     for (const char* key : kKeys) {
-      if (!keyAt(cursor, key)) continue;
-      char* value = cursor + strlen(key);
+      const char* k = key;
+      const char* t = cursor;
+      while (*k && tolower(static_cast<unsigned char>(*t)) == *k) {
+        ++t;
+        ++k;
+      }
+      if (*k) continue;
+      char* value = cursor + (t - cursor);
       while (*value && *value != '=' && *value != ':') ++value;
       if (!*value) continue;
       ++value;
@@ -46,26 +69,6 @@ void scrub(char* text) {
       }
     }
   }
-}
-
-bool commit(HalFile& file, const char* text) {
-  const size_t length = strlen(text);
-  if (file.write(text, length) != length || file.write("\n", 1) != 1) return false;
-  file.flush();
-  file.close();
-  return true;
-}
-
-void rotateIfNeeded() {
-  HalFile existing = Storage.open(kLog, O_RDONLY);
-  if (!existing) return;
-  const size_t size = existing.size();
-  existing.flush();
-  existing.close();
-  existing = HalFile{};
-  if (size < kMaxBytes) return;
-  Storage.remove(kPrevious);
-  if (!Storage.rename(kLog, kPrevious)) Storage.remove(kLog);
 }
 
 const char* resetName(const esp_reset_reason_t reason) {
@@ -95,71 +98,74 @@ const char* resetName(const esp_reset_reason_t reason) {
   }
 }
 
-void lastLine(char* out, const size_t cap) {
-  if (!out || cap < 2) return;
-  out[0] = '\0';
-  HalFile file = Storage.open(kLog, O_RDONLY);
-  if (!file) return;
-  const size_t size = file.size();
-  if (size == 0) {
-    file.close();
-    return;
+bool appendLine(const char* text) {
+  if (!Storage.ready() || !Storage.mkdir(kDir)) return false;
+  HalFile existing = Storage.open(kLog, O_RDONLY);
+  size_t size = 0;
+  if (existing) {
+    size = existing.size();
+    existing.close();
+    existing = HalFile{};
   }
-  const size_t window = size < 160 ? size : 160;
-  if (!file.seek(size - window)) {
-    file.close();
-    return;
+  if (size >= kMaxBytes) {
+    Storage.remove(kPrevious);
+    if (!Storage.rename(kLog, kPrevious)) Storage.remove(kLog);
   }
-  char raw[160];
-  const int got = file.read(raw, window);
+  // O_AT_END seeks to the current length. It does not truncate.
+  HalFile file = Storage.open(kLog, O_RDWR | O_CREAT | O_AT_END);
+  if (!file) return false;
+  const size_t length = strlen(text);
+  const bool wrote = file.write(text, length) == length && file.write("\n", 1) == 1;
+  file.flush();
   file.close();
-  if (got <= 0) return;
-  int end = got;
-  while (end > 0 && (raw[end - 1] == '\n' || raw[end - 1] == '\r')) --end;
-  int start = end;
-  while (start > 0 && raw[start - 1] != '\n') --start;
-  size_t used = 0;
-  for (int i = start; i < end && used + 1 < cap; ++i) {
-    const char c = raw[i];
-    out[used++] = (c >= 32 && c != '"') ? c : ' ';
-  }
-  out[used] = '\0';
+  file = HalFile{};
+  return wrote;
 }
 
 }  // namespace
 
+void setShow(void (*fn)(const char* text)) { show_ = fn; }
+
+void store(const char* text, char* out, const size_t outCap) {
+  ensure();
+  snprintf(out, outCap, "%s", text);
+  scrub(out);
+  const uint32_t slot = trail.count % kSlots;
+  snprintf(trail.text[slot], kText, "%s", out);
+  trail.count++;
+  LOG_INF("FQ", "%s", out);
+}
+
 void line(const char* text) {
   if (!text || !text[0]) return;
-  char buf[240];
-  snprintf(buf, sizeof(buf), "%s", text);
-  scrub(buf);
-  LOG_INF("FQ", "%s", buf);
-  if (!Storage.ready()) {
-    LOG_ERR("FQ", "log skipped: SD not mounted");
-    return;
-  }
-  if (!Storage.mkdir(kDir) || !Storage.exists(kDir)) {
-    LOG_ERR("FQ", "log skipped: %s missing", kDir);
-    return;
-  }
-  rotateIfNeeded();
-  HalFile file = Storage.open(kLog, O_RDWR | O_CREAT | O_AT_END);
-  if (!file) {
-    LOG_ERR("FQ", "log open failed");
-    return;
-  }
-  if (!commit(file, buf)) LOG_ERR("FQ", "log flush failed");
-  file = HalFile{};
+  char buf[kText];
+  store(text, buf, sizeof(buf));
+  if (show_) show_(buf);
 }
 
 void noteBoot() {
-  char previous[96];
-  lastLine(previous, sizeof(previous));
-  char buf[240];
-  snprintf(buf, sizeof(buf), "boot reset=%s after=%s", resetName(esp_reset_reason()), previous[0] ? previous : "-");
-  line(buf);
+  const bool keep = valid();
+  const uint32_t count = keep ? trail.count : 0;
+  char boot[96];
+  snprintf(boot, sizeof(boot), "boot reset=%s crumbs=%u", resetName(esp_reset_reason()), static_cast<unsigned>(count));
+  appendLine(boot);
+  if (keep && count > 0) {
+    const uint32_t start = count > kSlots ? count - kSlots : 0;
+    for (uint32_t i = start; i < count; ++i) {
+      char row[64];
+      snprintf(row, sizeof(row), "crumb %u %s", static_cast<unsigned>(i + 1), trail.text[i % kSlots]);
+      appendLine(row);
+    }
+  }
+  memset(&trail, 0, sizeof(trail));
+  trail.magic = kMagic;
 }
 
 }  // namespace FanqieLog
+
+extern "C" void fanqieNoteRestart(const char* why) {
+  char buf[48];
+  FanqieLog::store(why ? why : "restart", buf, sizeof(buf));
+}
 
 #endif

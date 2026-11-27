@@ -102,13 +102,13 @@ void FanqieSyncActivity::loop() {
   if (phase_ == Phase::Work && !worked_) {
     worked_ = true;
     requestUpdateAndWait();
-    FanqieLog::line("sync work");
+    FanqieLog::line("sync");
     NetworkStartup::prepare(renderer);
     {
       RenderLock lock(*this);
       if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
-      runWork();
     }
+    runWork();
     phase_ = Phase::Done;
     leave();
   }

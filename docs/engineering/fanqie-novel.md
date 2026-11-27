@@ -77,26 +77,22 @@ login API.
   1841 bytes; the read buffer is 4096 bytes.
 - When login fails, the screen names the class of failure (memory, network or
   TLS, HTTP status, compressed body, parse, QR image, or a short server
-  message). The same lines, without cookies or tokens, are appended to
-  `/.crosspoint/fanqie/fanqie.log`. At 64KB the current file is renamed to
-  `fanqie.log.1`, the same way a panic is written to the card, except this
-  file is kept across boots and rotated instead of replaced every time.
+  message) and the current step (`step: enter`, `step: dns`, `step: tls start`).
+  Those steps stay in RTC memory. The card is written only at the next boot,
+  appending `esp_reset_reason()` and the steps to `/.crosspoint/fanqie/fanqie.log`
+  with `O_AT_END` (the file is not truncated). At 64KB it is renamed to
+  `fanqie.log.1`. Cookie and token text is not stored.
 - Shelf download and progress upload were not executed against a signed-in
   account from this workspace. Signature acceptance and the progress unit can
   change without notice. A failed download leaves the placeholder page and
   does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
-- After Wi-Fi selection returns, login does not start TLS inside that callback.
-  It writes `enter login` to the SD log, paints “Connecting”, waits for that
-  refresh, and returns. The next `loop()` performs one handshake under
-  `RenderLock` after clearing the font cache, which is how WeRead keeps the
-  panel refresh off the radio and lets the main loop’s sleep timer run between
-  steps. The read buffer is a 4KB static buffer, the same size as
-  `WeReadClient::Operation::kIoBufferSize`, not a heap block taken beside the
-  handshake. The HTML login page is not fetched; `get_qrcode` sets its own
-  cookie. Each log line is flushed and closed before the next step. Boot
-  appends `esp_reset_reason()` and the previous line to
-  `/.crosspoint/fanqie/fanqie.log`.
+- After Wi-Fi returns, login paints the step and returns to `loop()` before
+  the handshake. The request does not hold `RenderLock`. X4 Pro's panel is on
+  SPI and the card is on SDMMC. `silentRestart()` does not reboot an X4 Pro,
+  because that board has a touch controller; the software-reset call sites
+  (`restart:home`, `restart:framebuffer`, `restart:sleep-abort`, `restart:ota`,
+  and the others) record a tag before `esp_restart`.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network
