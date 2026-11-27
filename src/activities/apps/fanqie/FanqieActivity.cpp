@@ -6,6 +6,7 @@
 
 #else
 
+#include <FontCacheManager.h>
 #include <HalDisplay.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -20,6 +21,8 @@
 #include "FanqieNet.h"
 #include "FanqieSession.h"
 #include "FanqieStore.h"
+#include "NetworkStartup.h"
+#include "activities/RenderLock.h"
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -145,11 +148,45 @@ void FanqieActivity::showFailure(const FanqieSession::Status status, const Fanqi
   snprintf(message_, sizeof(message_), "%s", text);
 }
 
+void FanqieActivity::scheduleLogin() {
+  // Written and flushed before any radio work, matching the breadcrumb contract.
+  FanqieLog::line("enter login");
+  netPhase_ = NetPhase::Login;
+  netBusy_ = true;
+  screen_ = Screen::Message;
+  snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_CONNECTING));
+  // Paint the status and let that refresh finish before TLS. WeRead does the
+  // same with requestUpdateAndWait, then performs the request on a later loop.
+  requestUpdateAndWait();
+  FanqieLog::line("connecting painted");
+}
+
+void FanqieActivity::runLoginStep() {
+  NetworkStartup::prepare(renderer);
+  {
+    // One protocol step under the render lock, so the panel refresh cannot run
+    // beside the handshake. This is WeReadActivity::stepOperation.
+    RenderLock lock(*this);
+    if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+    startQr();
+  }
+}
+
+bool FanqieActivity::pollAbort() {
+  const uint32_t now = millis();
+  if (now - lastAbortPoll_ < 10) return false;
+  lastAbortPoll_ = now;
+  mappedInput.update(true);
+  return mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture();
+}
+
+bool FanqieActivity::abortThunk(void* self) { return static_cast<FanqieActivity*>(self)->pollAbort(); }
+
 void FanqieActivity::runOnline() {
   const OnlineAction action = online_;
   online_ = OnlineAction::None;
   if (action == OnlineAction::Login)
-    startQr();
+    scheduleLogin();
   else if (action == OnlineAction::Shelf)
     startActivityForResultWith<FanqieSyncActivity>([](const ActivityResult&) {}, std::string(),
                                                    FanqieSyncActivity::Mode::Shelf);
@@ -176,13 +213,19 @@ void FanqieActivity::beginOnline(const OnlineAction action) {
   }
 }
 
-bool FanqieActivity::preventAutoSleep() { return screen_ == Screen::Qr; }
+bool FanqieActivity::preventAutoSleep() { return netBusy_ || screen_ == Screen::Qr; }
 
 int FanqieActivity::itemCount() const { return accountCount_ + 2 + (accountCount_ > 0 ? 1 : 0); }
 
 void FanqieActivity::startQr() {
   FanqieSession::Failure failure;
-  const auto status = FanqieSession::startLogin(jar_, token_, sizeof(token_), qr_, qrLen_, &failure);
+  const auto status =
+      FanqieSession::startLogin(jar_, token_, sizeof(token_), qr_, qrLen_, &failure, &FanqieActivity::abortThunk, this);
+  if (status == FanqieSession::Status::Cancelled) {
+    screen_ = Screen::Accounts;
+    reloadAccounts();
+    return;
+  }
   if (status == FanqieSession::Status::Offline) {
     screen_ = Screen::Message;
     snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_OFFLINE));
@@ -199,12 +242,19 @@ void FanqieActivity::startQr() {
     return;
   }
   png.close();
+  FanqieLog::line("qr decode ok");
   screen_ = Screen::Qr;
   nextPollAt_ = millis() + 3000;
 }
 
 void FanqieActivity::pollQr() {
-  const auto status = FanqieSession::pollLogin(jar_, token_);
+  const auto status = FanqieSession::pollLogin(jar_, token_, &FanqieActivity::abortThunk, this);
+  if (status == FanqieSession::Status::Cancelled) {
+    screen_ = Screen::Accounts;
+    qr_.reset();
+    reloadAccounts();
+    return;
+  }
   if (status == FanqieSession::Status::Waiting) {
     nextPollAt_ = millis() + 3000;
     return;
@@ -288,6 +338,13 @@ void FanqieActivity::activate() {
 }
 
 void FanqieActivity::loop() {
+  if (netPhase_ == NetPhase::Login) {
+    netPhase_ = NetPhase::None;
+    runLoginStep();
+    netBusy_ = false;
+    requestUpdate();
+    return;
+  }
   if (!confirmArmed_) {
     if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) confirmArmed_ = true;
   }
@@ -308,8 +365,14 @@ void FanqieActivity::loop() {
     return;
   }
   if (screen_ == Screen::Qr && millis() >= nextPollAt_) {
-    pollQr();
+    NetworkStartup::prepare(renderer);
+    {
+      RenderLock lock(*this);
+      if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+      pollQr();
+    }
     requestUpdate();
+    return;
   }
   const int count = screen_ == Screen::Accounts ? itemCount() : screen_ == Screen::ConfirmLogout ? 2 : 1;
   if (mappedInput.wasReleased(MappedInputManager::Button::Up) && selected_ > 0) {

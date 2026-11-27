@@ -6,14 +6,18 @@
 
 #else
 
+#include <FontCacheManager.h>
 #include <HalDisplay.h>
 #include <I18n.h>
 #include <Logging.h>
 
 #include <cstring>
 
+#include "FanqieLog.h"
 #include "FanqieNet.h"
 #include "FanqieSession.h"
+#include "NetworkStartup.h"
+#include "activities/RenderLock.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -98,7 +102,13 @@ void FanqieSyncActivity::loop() {
   if (phase_ == Phase::Work && !worked_) {
     worked_ = true;
     requestUpdateAndWait();
-    runWork();
+    FanqieLog::line("sync work");
+    NetworkStartup::prepare(renderer);
+    {
+      RenderLock lock(*this);
+      if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+      runWork();
+    }
     phase_ = Phase::Done;
     leave();
   }

@@ -269,11 +269,12 @@ Status fromTransport(const FanqieNet::Response& response, Failure* failure) {
   rememberFailure(failure, response.status, nullptr);
   if (response.failure == FanqieNet::Failure::Memory) return Status::Memory;
   if (response.failure == FanqieNet::Failure::Http) return Status::Http;
+  if (response.failure == FanqieNet::Failure::Cancelled) return Status::Cancelled;
   return Status::Network;
 }
 
 Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, std::unique_ptr<uint8_t[]>& png,
-                  size_t& pngLen, Failure* failure) {
+                  size_t& pngLen, Failure* failure, bool (*abort)(void*), void* abortContext) {
   png.reset();
   pngLen = 0;
   if (failure) *failure = {};
@@ -281,13 +282,10 @@ Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, 
   jar.clear();
   char url[512];
   FanqieNet::Response response;
-  // The HTML login page does not set the passport cookie. get_qrcode does.
-  // A failure here must not hide the QR request.
-  if (FanqieProtocol::loginPageUrl(url, sizeof(url))) {
-    FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, "text/html", kScratch, response, &jar);
-  }
+  FanqieLog::line("qr fetch");
   if (!FanqieProtocol::qrStartUrl(url, sizeof(url)) ||
-      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar)) {
+      !FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar,
+                          abort, abortContext)) {
     Status status = fromTransport(response, failure);
     if (status == Status::Http) {
       std::unique_ptr<char[]> body;
@@ -342,12 +340,13 @@ Status startLogin(FanqieProtocol::CookieJar& jar, char* token, size_t tokenCap, 
   return Status::Ok;
 }
 
-Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token) {
+Status pollLogin(FanqieProtocol::CookieJar& jar, const char* token, bool (*abort)(void*), void* abortContext) {
   if (!FanqieNet::connected()) return Status::Offline;
   char url[640];
   if (!FanqieProtocol::qrPollUrl(token, url, sizeof(url))) return Status::Failed;
   FanqieNet::Response response;
-  if (!FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar)) {
+  if (!FanqieNet::request(url, "GET", nullptr, 0, nullptr, nullptr, &jar, nullptr, nullptr, kScratch, response, &jar,
+                          abort, abortContext)) {
     char line[64];
     snprintf(line, sizeof(line), "qr poll fail status=%d", response.status);
     FanqieLog::line(line);

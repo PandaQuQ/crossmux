@@ -86,6 +86,17 @@ login API.
   change without notice. A failed download leaves the placeholder page and
   does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
+- After Wi-Fi selection returns, login does not start TLS inside that callback.
+  It writes `enter login` to the SD log, paints “Connecting”, waits for that
+  refresh, and returns. The next `loop()` performs one handshake under
+  `RenderLock` after clearing the font cache, which is how WeRead keeps the
+  panel refresh off the radio and lets the main loop’s sleep timer run between
+  steps. The read buffer is a 4KB static buffer, the same size as
+  `WeReadClient::Operation::kIoBufferSize`, not a heap block taken beside the
+  handshake. The HTML login page is not fetched; `get_qrcode` sets its own
+  cookie. Each log line is flushed and closed before the next step. Boot
+  appends `esp_reset_reason()` and the previous line to
+  `/.crosspoint/fanqie/fanqie.log`.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network

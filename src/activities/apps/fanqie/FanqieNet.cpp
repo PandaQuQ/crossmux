@@ -9,11 +9,12 @@ constexpr int kNetOmitted = 0;
 #else
 
 #include <Arduino.h>
+#include <HalMemory.h>
 #include <HalStorage.h>
 #include <Logging.h>
-#include <Memory.h>
 #include <WeReadHttpClient.h>
 #include <WiFi.h>
+#include <freertos/task.h>
 #include <strings.h>
 
 #include <cstring>
@@ -25,6 +26,9 @@ namespace FanqieNet {
 namespace {
 
 constexpr size_t kMaxBody = 256 * 1024;
+// Same size as WeReadClient::Operation::kIoBufferSize. It lives for the process
+// so the handshake does not allocate its read buffer.
+uint8_t ioBuffer[4096];
 
 struct WriteState {
   HalFile* file = nullptr;
@@ -91,7 +95,7 @@ void releaseRadio() {
 bool request(const char* url, const char* method, const uint8_t* body, size_t bodyLen, const char* contentType,
              const char* contentEncoding, const FanqieProtocol::CookieJar* cookies,
              const FanqieCrypto::SignHeaders* sign, const char* accept, const char* destPath, Response& response,
-             FanqieProtocol::CookieJar* updateCookies) {
+             FanqieProtocol::CookieJar* updateCookies, const AbortFn abort, void* abortContext) {
   response = {};
   char path[96];
   char heap[48];
@@ -104,39 +108,28 @@ bool request(const char* url, const char* method, const uint8_t* body, size_t bo
     response.failure = Failure::Network;
     return false;
   }
-  // Station status can flip to connected before DHCP fills the address.
-  for (int i = 0; i < 20 && WiFi.status() == WL_CONNECTED && WiFi.localIP()[0] == 0; ++i) delay(100);
   const IPAddress local = WiFi.localIP();
   char host[96];
   IPAddress resolved;
   const bool haveHost = copyHost(url, host, sizeof(host));
   const bool resolvedOk = haveHost && WiFi.hostByName(host, resolved) == 1;
+  const auto internal = HalMemory::getInternalHeap();
+  const auto psram = HalMemory::getPsramHeap();
   {
-    char line[180];
-    snprintf(line, sizeof(line), "http begin %s %s ip=%u.%u.%u.%u dns=%u %s", method ? method : "GET", path, local[0],
-             local[1], local[2], local[3], resolvedOk ? 1U : 0U, heap);
+    char line[240];
+    snprintf(line, sizeof(line),
+             "dns %s ip=%u.%u.%u.%u rssi=%d ok=%u resolved=%u.%u.%u.%u free=%u largest=%u psram=%u task=%s hw=%u", path,
+             local[0], local[1], local[2], local[3], WiFi.RSSI(), resolvedOk ? 1U : 0U, resolved[0], resolved[1],
+             resolved[2], resolved[3], static_cast<unsigned>(internal.freeBytes),
+             static_cast<unsigned>(internal.largestBlockBytes), static_cast<unsigned>(psram.freeBytes),
+             pcTaskGetName(nullptr), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
     note(line);
   }
   if (local[0] == 0 || !resolvedOk) {
     response.failure = Failure::Network;
     return false;
   }
-#if defined(FREEINK_NET_WOLFSSL) && !defined(CROSSPOINT_EMULATED)
-  note("tls verify=off");
-#else
-  note("tls verify=bundle");
-#endif
-  // The HTTP client refuses to run without a caller-owned read buffer. Login
-  // page headers observed in 2026 are under 2KB; 4KB leaves room for one line.
-  auto readBuffer = makeUniqueNoThrow<uint8_t[]>(4096);
-  if (!readBuffer) {
-    heapLine(heap, sizeof(heap));
-    char line[96];
-    snprintf(line, sizeof(line), "http oom readbuf %s", heap);
-    note(line);
-    response.failure = Failure::Memory;
-    return false;
-  }
+  note("tls start");
   const std::string temp = std::string(destPath) + ".tmp";
   HalFile file;
   if (!Storage.openFileForWrite("FQ", temp, file)) {
@@ -172,9 +165,12 @@ bool request(const char* url, const char* method, const uint8_t* body, size_t bo
   options.headers = headers;
   options.headerCount = headerCount;
   options.timeoutMs = 20000;
-  options.readBuffer = readBuffer.get();
-  options.readBufferSize = 4096;
+  options.readBuffer = ioBuffer;
+  options.readBufferSize = sizeof(ioBuffer);
+  options.shouldAbort = abort;
+  options.abortContext = abortContext;
   int status = 0;
+  note("request sent");
   const auto result = WeReadHttpClient::request(
       url, options, [&](const uint8_t* data, size_t len) { return onData(data, len, &state); },
       [&](const char* name, const char* value) {
@@ -187,13 +183,19 @@ bool request(const char* url, const char* method, const uint8_t* body, size_t bo
   response.status = status;
   response.bytes = state.written;
   response.network = result != WeReadHttpClient::Result::NetworkError;
+  note("tls end");
   heapLine(heap, sizeof(heap));
   {
-    char line[180];
+    char line[240];
     snprintf(line, sizeof(line), "http end %s result=%u status=%d bytes=%u overflow=%u %s", path,
              static_cast<unsigned>(result), status, static_cast<unsigned>(state.written), state.overflow ? 1U : 0U,
              heap);
     note(line);
+  }
+  if (result == WeReadHttpClient::Result::Cancelled) {
+    Storage.remove(temp.c_str());
+    response.failure = Failure::Cancelled;
+    return false;
   }
   const bool httpOk = result == WeReadHttpClient::Result::Ok && !state.overflow && status >= 200 && status < 300;
   if (!httpOk) {

@@ -22,11 +22,16 @@ class FanqieActivity final : public Activity {
   enum class Screen : uint8_t { Disclaimer, Accounts, Qr, Message, ConfirmLogout };
   enum class OnlineAction : uint8_t { None, Login, Shelf };
 
+  enum class NetPhase : uint8_t { None, Login };
+
   Screen screen_ = Screen::Disclaimer;
+  NetPhase netPhase_ = NetPhase::None;
   int selected_ = 0;
   bool confirmArmed_ = false;
   bool accepted_ = false;
   bool radioUsed_ = false;
+  bool netBusy_ = false;
+  uint32_t lastAbortPoll_ = 0;
   OnlineAction online_ = OnlineAction::None;
   uint32_t nextPollAt_ = 0;
   char token_[96] = {};
@@ -47,6 +52,10 @@ class FanqieActivity final : public Activity {
   void runOnline();
   void showOffline();
   void showFailure(FanqieSession::Status status, const FanqieSession::Failure& failure);
+  void scheduleLogin();
+  void runLoginStep();
+  bool pollAbort();
+  static bool abortThunk(void* self);
   void startQr();
   void pollQr();
   void drawQr(const Rect& safe) const;

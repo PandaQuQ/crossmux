@@ -37,6 +37,9 @@
 #include <cstring>
 
 #include "AchievementsStore.h"
+#if FANQIE_NOVEL
+#include "activities/apps/fanqie/FanqieLog.h"
+#endif
 #include "BleInput.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -984,6 +987,9 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+#if FANQIE_NOVEL
+  FanqieLog::noteBoot();
+#endif
 
   const bool settingsLoaded = SETTINGS.loadFromFile();
 #if FREEINK_DEVICE_READPICO
