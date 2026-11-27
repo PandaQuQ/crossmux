@@ -16,7 +16,6 @@
 #include "FanqieLog.h"
 #include "FanqieNet.h"
 #include "FanqieSession.h"
-#include "NetworkStartup.h"
 #include "activities/RenderLock.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -103,12 +102,11 @@ void FanqieSyncActivity::loop() {
     worked_ = true;
     requestUpdateAndWait();
     FanqieLog::line("sync");
-    NetworkStartup::prepare(renderer);
     {
       RenderLock lock(*this);
       if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+      runWork();
     }
-    runWork();
     phase_ = Phase::Done;
     leave();
   }

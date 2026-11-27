@@ -54,25 +54,6 @@ void heapLine(char* out, size_t cap) {
            static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
-bool copyHost(const char* url, char* host, size_t cap) {
-  const char* start = strstr(url, "://");
-  if (!start) return false;
-  start += 3;
-  const char* end = strchr(start, '/');
-  if (!end) end = start + strlen(start);
-  for (const char* cursor = start; cursor < end; ++cursor) {
-    if (*cursor == ':') {
-      end = cursor;
-      break;
-    }
-  }
-  const size_t length = static_cast<size_t>(end - start);
-  if (length == 0 || length + 1 > cap) return false;
-  memcpy(host, start, length);
-  host[length] = '\0';
-  return true;
-}
-
 void copyPath(const char* url, char* out, size_t cap) {
   const char* start = strstr(url, "://");
   const char* path = start ? strchr(start + 3, '/') : url;
@@ -109,23 +90,20 @@ bool request(const char* url, const char* method, const uint8_t* body, size_t bo
     return false;
   }
   const IPAddress local = WiFi.localIP();
-  char host[96];
-  IPAddress resolved;
-  const bool haveHost = copyHost(url, host, sizeof(host));
-  const bool resolvedOk = haveHost && WiFi.hostByName(host, resolved) == 1;
   const auto internal = HalMemory::getInternalHeap();
   const auto psram = HalMemory::getPsramHeap();
   {
     char line[240];
-    snprintf(line, sizeof(line),
-             "dns %s ip=%u.%u.%u.%u rssi=%d ok=%u resolved=%u.%u.%u.%u free=%u largest=%u psram=%u task=%s hw=%u", path,
-             local[0], local[1], local[2], local[3], WiFi.RSSI(), resolvedOk ? 1U : 0U, resolved[0], resolved[1],
-             resolved[2], resolved[3], static_cast<unsigned>(internal.freeBytes),
+    // The HTTP client resolves the name itself, the same way WeRead does.
+    // A separate hostByName was the first radio call after the qr-fetch refresh,
+    // and ppTask aborted before this line could be logged.
+    snprintf(line, sizeof(line), "connect %s ip=%u.%u.%u.%u rssi=%d free=%u largest=%u psram=%u task=%s hw=%u", path,
+             local[0], local[1], local[2], local[3], WiFi.RSSI(), static_cast<unsigned>(internal.freeBytes),
              static_cast<unsigned>(internal.largestBlockBytes), static_cast<unsigned>(psram.freeBytes),
              pcTaskGetName(nullptr), static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
     note(line);
   }
-  if (local[0] == 0 || !resolvedOk) {
+  if (local[0] == 0) {
     response.failure = Failure::Network;
     return false;
   }

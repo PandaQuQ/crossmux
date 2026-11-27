@@ -87,12 +87,14 @@ login API.
   change without notice. A failed download leaves the placeholder page and
   does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
-- After Wi-Fi returns, login paints the step and returns to `loop()` before
-  the handshake. The request does not hold `RenderLock`. X4 Pro's panel is on
-  SPI and the card is on SDMMC. `silentRestart()` does not reboot an X4 Pro,
-  because that board has a touch controller; the software-reset call sites
-  (`restart:home`, `restart:framebuffer`, `restart:sleep-abort`, `restart:ota`,
-  and the others) record a tag before `esp_restart`.
+- After Wi-Fi returns, login paints `step: enter` once and returns to
+  `loop()`. The next turn paints `step: tls` and only then does the request,
+  under `RenderLock` with the font cache cleared, which is WeRead's per-step
+  shape. `NetworkStartup::prepare` is not called there: its "before font
+  reclaim" line does not free memory unless internal free is under 64KB or
+  the largest block is under 32KB. The name lookup is left to the HTTP client.
+  Steps stay in RTC memory. The card is appended only at boot, and a directory
+  that already exists is not treated as a failed `mkdir`.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network

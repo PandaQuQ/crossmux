@@ -21,7 +21,6 @@
 #include "FanqieNet.h"
 #include "FanqieSession.h"
 #include "FanqieStore.h"
-#include "NetworkStartup.h"
 #include "activities/RenderLock.h"
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
 #include "components/UITheme.h"
@@ -172,21 +171,28 @@ void FanqieActivity::scheduleLogin() {
   netBusy_ = true;
   screen_ = Screen::Message;
   snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_CONNECTING));
-  // line() stores the step in RTC and paints it. It does not touch the card.
+  snprintf(step_, sizeof(step_), "step: enter");
   FanqieLog::line("enter");
+  paintingStep_ = true;
+  requestUpdateAndWait();
+  paintingStep_ = false;
   FanqieLog::line("painted");
 }
 
 void FanqieActivity::runLoginStep() {
-  NetworkStartup::prepare(renderer);
+  // One settled frame, then the request. WeRead does not call
+  // NetworkStartup::prepare in the step: on this boot the check did not free
+  // anything (102KB free, 53KB largest) and ppTask aborted during the next paint.
+  snprintf(step_, sizeof(step_), "step: tls");
+  FanqieLog::line("tls");
+  paintingStep_ = true;
+  requestUpdateAndWait();
+  paintingStep_ = false;
   {
     RenderLock lock(*this);
     if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+    startQr();
   }
-  // The handshake and the response file stay outside the render lock. X4 Pro's
-  // panel is on SPI and the card is on SDMMC; holding the lock across SD I/O
-  // still stalls the refresh task on the storage mutex.
-  startQr();
 }
 
 bool FanqieActivity::pollAbort() {
@@ -202,9 +208,11 @@ bool FanqieActivity::abortThunk(void* self) { return static_cast<FanqieActivity*
 void FanqieActivity::runOnline() {
   const OnlineAction action = online_;
   online_ = OnlineAction::None;
-  if (action == OnlineAction::Login)
+  if (action == OnlineAction::Login) {
     scheduleLogin();
-  else if (action == OnlineAction::Shelf)
+    return;
+  }
+  if (action == OnlineAction::Shelf)
     startActivityForResultWith<FanqieSyncActivity>([](const ActivityResult&) {}, std::string(),
                                                    FanqieSyncActivity::Mode::Shelf);
   requestUpdate();
@@ -382,7 +390,6 @@ void FanqieActivity::loop() {
     return;
   }
   if (screen_ == Screen::Qr && millis() >= nextPollAt_) {
-    NetworkStartup::prepare(renderer);
     {
       RenderLock lock(*this);
       if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();

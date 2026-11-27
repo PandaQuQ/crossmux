@@ -38,8 +38,6 @@ struct Trail {
 // Survives esp_restart / ESP.restart. A power loss leaves this as garbage.
 RTC_NOINIT_ATTR Trail trail;
 
-void (*show_)(const char*) = nullptr;
-
 bool valid() { return trail.magic == kMagic && trail.count < 100000u; }
 
 void ensure() {
@@ -99,7 +97,12 @@ const char* resetName(const esp_reset_reason_t reason) {
 }
 
 bool appendLine(const char* text) {
-  if (!Storage.ready() || !Storage.mkdir(kDir)) return false;
+  // SdFat mkdir returns false when the directory already exists. The first boot
+  // created /.crosspoint/fanqie, so every later boot was skipping the append
+  // and leaving the original 22-byte line in place.
+  if (!Storage.ready()) return false;
+  if (!Storage.exists("/.crosspoint") && !Storage.mkdir("/.crosspoint")) return false;
+  if (!Storage.exists(kDir) && !Storage.mkdir(kDir)) return false;
   HalFile existing = Storage.open(kLog, O_RDONLY);
   size_t size = 0;
   if (existing) {
@@ -119,12 +122,13 @@ bool appendLine(const char* text) {
   file.flush();
   file.close();
   file = HalFile{};
+  if (!wrote) LOG_ERR("FQ", "log append failed");
   return wrote;
 }
 
 }  // namespace
 
-void setShow(void (*fn)(const char* text)) { show_ = fn; }
+void setShow(void (*fn)(const char* text)) { (void)fn; }
 
 void store(const char* text, char* out, const size_t outCap) {
   ensure();
@@ -139,8 +143,9 @@ void store(const char* text, char* out, const size_t outCap) {
 void line(const char* text) {
   if (!text || !text[0]) return;
   char buf[kText];
+  // RTC and the serial log only. Painting is the activity's job: doing it from
+  // every step refreshed the panel again while the Wi-Fi task was already up.
   store(text, buf, sizeof(buf));
-  if (show_) show_(buf);
 }
 
 void noteBoot() {
