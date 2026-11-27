@@ -40,6 +40,10 @@ struct RequestOptions {
   bool (*acceptStatus)(int) = nullptr;
   AbortCallback shouldAbort = nullptr;
   void* abortContext = nullptr;
+  // Optional. Fanqie uses it to append a flushed card line at the handshake
+  // boundaries. WeRead leaves it null. Must not paint or take the render lock.
+  void (*trace)(void* context, const char* stage) = nullptr;
+  void* traceContext = nullptr;
 };
 
 struct HttpsUrlView {

@@ -171,7 +171,10 @@ void FanqieActivity::scheduleLogin() {
   netBusy_ = true;
   screen_ = Screen::Message;
   snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_CONNECTING));
-  snprintf(step_, sizeof(step_), "step: enter");
+  // One paint, same as WeRead's startJob. The card line `tls` is written on
+  // the next loop and does not refresh the panel, so this string has to be
+  // the step the request is about to run. A second paint was the e9d1e61 path.
+  snprintf(step_, sizeof(step_), "step: tls");
   FanqieLog::line("enter");
   paintingStep_ = true;
   requestUpdateAndWait();

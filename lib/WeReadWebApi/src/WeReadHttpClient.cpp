@@ -269,6 +269,7 @@ WeReadHttpClient::Result runRequest(const char* url, const WeReadHttpClient::Req
     cleanupClient(client);
     return WeReadHttpClient::Result::NetworkError;
   }
+  if (options.trace) options.trace(options.traceContext, "tls-conn");
   if (reused) {
     ++reusedRequests;
   } else {
@@ -297,6 +298,7 @@ WeReadHttpClient::Result runRequest(const char* url, const WeReadHttpClient::Req
   }
   requestWritten = requestWritten && write("\r\n") &&
                    (options.bodySize == 0 || writeAll(client, options.body, options.bodySize, options));
+  if (requestWritten && options.trace) options.trace(options.traceContext, "tls-req");
   if (!requestWritten) {
     LOG_ERR("HTTP", "wolfSSL request write failed");
     cleanupClient(client);
@@ -370,6 +372,7 @@ WeReadHttpClient::Result runRequest(const char* url, const WeReadHttpClient::Req
       }
     }
   }
+  if (options.trace) options.trace(options.traceContext, "tls-hdr");
 
   BodyFraming framing = BodyFraming::CloseDelimited;
   if ((status >= 100 && status < 200) || status == 204 || status == 304) {
@@ -413,6 +416,7 @@ WeReadHttpClient::Result runRequest(const char* url, const WeReadHttpClient::Req
       return WeReadHttpClient::Result::NetworkError;
   }
 
+  if (options.trace) options.trace(options.traceContext, "tls-body");
   const bool persistent = keepAlive && client.connected();
   if (!persistent) {
     LOG_INF("WR", "TLS peer closed: host=%s", host);

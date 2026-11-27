@@ -63,6 +63,8 @@ constexpr char kUserAgent[] =
 
 bool acceptLoginStatus(const int status) { return status != 401 && status != 403; }
 
+void traceLogin(void*, const char* stage) { FanqieLog::persist(stage ? stage : "tls-?"); }
+
 void copyPath(const char* url, char* out, size_t cap) {
   const char* start = strstr(url, "://");
   const char* path = start ? strchr(start + 3, '/') : url;
@@ -113,6 +115,7 @@ bool requestMemory(const char* url, const FanqieProtocol::CookieJar* cookies, Fa
   options.acceptStatus = acceptLoginStatus;
   options.shouldAbort = abort;
   options.abortContext = abortContext;
+  options.trace = traceLogin;
 
   struct Sink {
     char* body;

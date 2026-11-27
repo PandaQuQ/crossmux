@@ -87,14 +87,15 @@ login API.
   change without notice. A failed download leaves the placeholder page and
   does not invent chapter text.
 - At most 32 shelf books and 600 chapters are indexed per book.
-- After Wi-Fi returns, login paints the connecting screen once and returns
-  to `loop()`, which is what WeRead's `startJob` does. The next turn appends
-  `tls` to `fanqie.log` (a power loss keeps that line; RTC does not), takes
-  `RenderLock`, clears the font cache, and calls `WeReadHttpClient::request`
-  the same way WeRead's `requestOnce` does: stack session, 20 second timeout,
-  the 4KB read buffer, and a RAM body. It does not call `WiFi.localIP`,
-  `WiFi.RSSI`, or open the card during that handshake. `NetworkStartup::prepare`
-  is not called in the step.
+- After Wi-Fi returns, login paints once (`step: tls`) and returns to
+  `loop()`, which is what WeRead's `startJob` does. The next turn appends
+  `tls` to `fanqie.log` without painting again, then takes `RenderLock`,
+  clears the font cache, and calls `WeReadHttpClient::request` the same way
+  WeRead's `requestOnce` does. That call appends `tls-conn`, `tls-req`,
+  `tls-hdr`, and `tls-body` as each stage finishes. The lines are flushed.
+  RTC memory does not survive a power cut. `NetworkStartup::prepare` is not
+  called in the step. Fanqie does not drive the power latch or enter deep sleep
+  on this path; `preventAutoSleep` is true while the login request runs.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network
