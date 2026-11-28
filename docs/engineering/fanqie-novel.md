@@ -90,21 +90,16 @@ login API.
 - After Wi-Fi returns, login paints once (`step: tls`) and returns to
   `loop()`, which is what WeRead's `startJob` does. The next turn appends
   `tls` to `fanqie.log` without painting again, turns Wi-Fi modem sleep off,
-  then takes `RenderLock` and calls `WeReadHttpClient::request`. WeRead's
-  QR step does clear the font cache inside `stepOperation` before its own
-  login GET. This diagnostic image does not: Fanqie's QR step logs
-  `FQ cache=skip` and leaves the cache in place. `47dce62` still panicked
-  inside `hostResolves` (`dns_send` -> `wifi_transmit`) with modem sleep
-  already off. The same image appends `FQ`/`WR` heap lines
-  (`ok`, internal free/largest, internal-DMA free/largest, PSRAM free/largest)
-  before that lookup. X4 Pro has PSRAM; `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`
-  is set for Read Pico only, so this image keeps lwIP and Wi-Fi buffers in
-  internal RAM. The stage lines `tls-conn`, `tls-req`, `tls-hdr`, and
-  `tls-body` are unchanged.
-  The lines are flushed.
-  RTC memory does not survive a power cut. `NetworkStartup::prepare` is not
-  called in the step. Fanqie does not drive the power latch or enter deep sleep
-  on this path; `preventAutoSleep` is true while the login request runs.
+  `12a8ae5` still panicked in `dns_send` after `heap_caps_check_integrity_all`
+  returned ok, with 94KB internal DMA free. `RenderLock` is a FreeRTOS mutex.
+  WeRead's login GET holds it. `NetworkStartup::prepare` only reclaims fonts
+  when memory is already low; it does not change Wi-Fi mode or power-save.
+  This image does not hold the mutex for the QR step. It logs mode, power-save,
+  and channel, calls `prepare`, resolves `weread.qq.com`, resolves
+  `fanqienovel.com`, then performs the login GET. The first flushed step
+  without its `ok` line is the panic. Stage lines `tls-conn`, `tls-req`,
+  `tls-hdr`, and `tls-body` remain. RTC memory does not survive a power cut.
+  Fanqie does not drive the power latch; `preventAutoSleep` stays true.
 - Login, shelf sync, opening a book, and exit upload use
   `WifiSelectionActivity` when `WiFi.status()` is not already `WL_CONNECTED`.
   That screen auto-connects a saved network, then shows the system network

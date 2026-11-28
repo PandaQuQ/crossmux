@@ -12,6 +12,9 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <SecureClient.h>
+#include <WiFi.h>
+#include <esp_wifi.h>
 
 #include <algorithm>
 #include <cstring>
@@ -21,6 +24,7 @@
 #include "FanqieNet.h"
 #include "FanqieSession.h"
 #include "FanqieStore.h"
+#include "NetworkStartup.h"
 #include "activities/RenderLock.h"
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
 #include "components/UITheme.h"
@@ -38,6 +42,23 @@
 namespace {
 
 constexpr char kAccepted[] = "/.crosspoint/fanqie/accepted";
+
+// Mode, power-save, and channel are driver settings. They do not enqueue a
+// data frame. RSSI and localIP are left unread: the panic is the first TX.
+void logWifiState() {
+  wifi_mode_t mode = WIFI_MODE_NULL;
+  wifi_ps_type_t ps = WIFI_PS_NONE;
+  uint8_t primary = 0;
+  wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+  const esp_err_t modeErr = esp_wifi_get_mode(&mode);
+  const esp_err_t psErr = esp_wifi_get_ps(&ps);
+  const esp_err_t channelErr = esp_wifi_get_channel(&primary, &second);
+  char line[48];
+  snprintf(line, sizeof(line), "wifi m=%u/%d ps=%u/%d ch=%u/%d st=%d", static_cast<unsigned>(mode),
+           static_cast<int>(modeErr), static_cast<unsigned>(ps), static_cast<int>(psErr), primary,
+           static_cast<int>(channelErr), static_cast<int>(WiFi.status()));
+  FanqieLog::persist(line);
+}
 
 struct QrBlit {
   GfxRenderer* renderer = nullptr;
@@ -184,17 +205,23 @@ void FanqieActivity::scheduleLogin() {
 }
 
 void FanqieActivity::runLoginStep() {
-  // WeRead paints the connecting screen in startJob, returns, and issues the
-  // login GET on the next loop. The card line is the one extra: a power loss
-  // during TLS still leaves the step, because RTC does not survive POWERON.
+  // 12a8ae5: heap was intact and skipping clearCache still panicked in
+  // dns_send. Each line below is flushed before the call it names. The first
+  // missing "ok" is the step that panicked. RenderLock is not held: it is a
+  // FreeRTOS mutex, and WeRead's login GET does hold that mutex.
   FanqieLog::persist("tls");
-  // Same modem-sleep state as 47dce62. The only behavior change is skipping
-  // clearCache, so a panic or a QR tells us whether that free was required.
   WifiPowerSaveGuard powerSave;
-  RenderLock lock(*this);
-  FanqieLog::heapProbe("FQ pre-cache");
-  FanqieLog::persist("FQ cache=skip");
-  FanqieLog::heapProbe("FQ post-cache");
+  logWifiState();
+  FanqieLog::persist("step prepare");
+  NetworkStartup::prepare(renderer);
+  FanqieLog::persist("step prepare done");
+  FanqieLog::persist("step dns-weread");
+  const bool weread = freeink::hostResolves("weread.qq.com");
+  FanqieLog::persist(weread ? "step dns-weread ok" : "step dns-weread fail");
+  FanqieLog::persist("step dns-fanqie");
+  const bool fanqie = freeink::hostResolves("fanqienovel.com");
+  FanqieLog::persist(fanqie ? "step dns-fanqie ok" : "step dns-fanqie fail");
+  FanqieLog::persist("step request");
   startQr();
 }
 
