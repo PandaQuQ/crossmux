@@ -52,6 +52,9 @@ constexpr AppEntry kAppEntries[] = {
     {AppId::Calculator, StrId::STR_CALCULATOR_TITLE, UIIcon::Calculator, &ActivityManager::goToCalculator},
     {AppId::Woodfish, StrId::STR_WOODFISH_TITLE, UIIcon::Woodfish, &ActivityManager::goToWoodfish},
     {AppId::Standby, StrId::STR_STANDBY_TITLE, UIIcon::Standby, &ActivityManager::goToStandby},
+#ifdef FANQIE_NOVEL
+    {AppId::Fanqie, StrId::STR_FANQIE_TITLE, UIIcon::Book, &ActivityManager::goToFanqie},
+#endif
 };
 
 constexpr int kAppCount = static_cast<int>(sizeof(kAppEntries) / sizeof(kAppEntries[0]));

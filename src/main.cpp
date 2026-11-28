@@ -51,6 +51,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/apps/fanqie/FanqieLog.h"
 #ifdef ENABLE_CHINESE_VERSION
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
@@ -241,6 +242,7 @@ void silentRestart() {
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
+  fanqieNoteRestart("restart:home");
   ESP.restart();
 }
 
@@ -257,6 +259,7 @@ void silentRestartToReader(const bool suppressChineseFontPrompt) {
   LOG_DBG("MAIN", "Silent restart (target=reader%s)", suppressChineseFontPrompt ? ", suppress-font-prompt" : "");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
+  fanqieNoteRestart("restart:reader");
   ESP.restart();
 }
 
@@ -269,6 +272,7 @@ void silentRestartToReaderAndPreloadChineseFont(const uint8_t pointSize) {
   LOG_DBG("MAIN", "Silent restart (target=reader-preload-font, size=%u)", static_cast<unsigned>(pointSize));
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
+  fanqieNoteRestart("restart:font");
   ESP.restart();
 }
 
@@ -280,6 +284,7 @@ void silentRestartToSettings() {
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
+  fanqieNoteRestart("restart:settings");
   ESP.restart();
 }
 
@@ -298,6 +303,7 @@ void silentRestartToJoinNetwork() {
   LOG_DBG("MAIN", "Silent restart (target=join-network)");
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
+  fanqieNoteRestart("restart:join");
   ESP.restart();
 }
 
@@ -311,6 +317,7 @@ void restartToHomeAfterStorageHandoff() {
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   handoffUsbOtgToSerialJtag();
+  fanqieNoteRestart("restart:storage");
   ESP.restart();
 }
 
@@ -649,7 +656,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
-
+  fanqieNoteRestart("sleep-entry");
   powerManager.startDeepSleep(gpio, wakeOnHeldButton);
 }
 
@@ -984,6 +991,9 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+#if FANQIE_NOVEL
+  FanqieLog::noteBoot();
+#endif
 
   const bool settingsLoaded = SETTINGS.loadFromFile();
 #if FREEINK_DEVICE_READPICO

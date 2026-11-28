@@ -135,6 +135,10 @@ class ReadingStatsStore {
   void beginSession(const std::string& path, const std::string& title, const std::string& author,
                     const std::string& coverBmpPath, uint8_t progressPercent = 0, const std::string& chapterTitle = "",
                     uint8_t chapterProgressPercent = 0);
+  // Updates the shelf percent for a book imported by an external catalog.
+  // It does not add a reading session or reading time.
+  bool noteExternalProgress(const std::string& path, const std::string& title, const std::string& author,
+                            uint8_t progressPercent);
   void noteActivity();
   void tickActiveSession();
   void resumeSession();

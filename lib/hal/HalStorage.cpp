@@ -27,7 +27,7 @@ HalStorage HalStorage::instance;
 
 HalStorage::HalStorage() {
   storageMutex = xSemaphoreCreateRecursiveMutex();
-  assert(storageMutex != nullptr);
+  if (!storageMutex) LOG_ERR("HAL", "storage mutex create failed");
 }
 
 // begin() and ready() are only called from setup, no need to acquire mutex for them
@@ -66,10 +66,19 @@ bool HalStorage::cardDetectAsserted() const {
 // For the rest of the methods, we acquire the mutex to ensure thread safety
 
 HalStorage::StorageLock::StorageLock() {
-  xSemaphoreTakeRecursive(HalStorage::getInstance().storageMutex, portMAX_DELAY);
+  auto* mutex = HalStorage::getInstance().storageMutex;
+  if (!mutex) {
+    LOG_ERR("HAL", "storage mutex missing");
+    return;
+  }
+  xSemaphoreTakeRecursive(mutex, portMAX_DELAY);
+  held_ = true;
 }
 
-HalStorage::StorageLock::~StorageLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
+HalStorage::StorageLock::~StorageLock() {
+  if (!held_) return;
+  xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex);
+}
 
 bool HalStorage::getSpace(uint64_t& totalBytes, uint64_t& freeBytes) {
   StorageLock lock;

@@ -1114,3 +1114,31 @@ The transparent overlay has its own target `/sleep-overlay.bmp` and independent
 version 1 three-byte schema. Recovery checks both targets; committing a normal
 sleep image and committing an overlay never overwrite one another's image or
 transaction files.
+
+## Fanqie cache
+
+X4 Pro builds with `FANQIE_NOVEL` store the connector under
+`/.crosspoint/fanqie/`. The readable book is a normal EPUB at
+`/Fanqie/<bookId>.epub`; its reading position still uses the shared
+`/.crosspoint/epub_<hash>/progress.bin`. These records are little-endian.
+
+`accounts.bin` version 1: `magic` `FQC1` (`0x31435146`), `version` uint16 = 1,
+`count` uint16, `active` int16, `reserved` uint16, then `count` records of
+`nickname[48]`, `cookieLen` uint16, and `cookieLen` bytes. Cookies are not logs.
+
+`chapters.bin` version 1: `magic` `FQCH` (`0x48435146`), `version` uint16 = 1,
+`recordSize` uint16 = 104, `count` uint32, then `count` records of
+`itemId[24]` and `title[80]`.
+
+`meta.bin` version 1: `magic` `FQBM` (`0x4D425146`), `version` uint16 = 1,
+`bytes` uint16 = sizeof(BookMeta), then `bookId[24]`, `title[96]`,
+`author[64]`, `epubPath[96]`, `chapterCount` uint32, `cloudItem[24]`,
+`cloudUnix` uint32, `localUnix` uint32, `dirty` uint8, one padding byte,
+`spine` uint16, `page` uint16, `pageCount` uint16.
+
+`index.bin` version 1: `magic` `FQIX` (`0x58495146`), `version` uint16 = 1,
+`count` uint16, then records of `bookId[24]` and `epubPath[96]`.
+
+`device.bin` is 19 ASCII digits. `content.key` is 32 hex characters. Neither
+file is a user password, and neither is written to the log. Bump the version
+field in `FanqieStore.h` before changing a record.

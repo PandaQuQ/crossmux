@@ -95,6 +95,10 @@ class ReaderActivity : public Activity {
   static std::unique_ptr<ReaderActivity> create(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                 std::string path, bool allowFastInitialRefresh);
 
+  void onGoHome(HomeMenuItem item = HomeMenuItem::NONE) override;
+  // The capacitive Home key is handled before ReaderActivity::loop, so it must
+  // use the same exit as Back. Otherwise a Fanqie book skips the upload.
+  bool handleHomeGesture() override;
   void onEnter() override;
   void onExit() override;
   void prepareForSleep() override;

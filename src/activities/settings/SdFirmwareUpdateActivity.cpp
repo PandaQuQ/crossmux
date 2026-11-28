@@ -12,6 +12,7 @@
 
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
+#include "activities/apps/fanqie/FanqieLog.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/SubpageLayout.h"
@@ -214,6 +215,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
   }
   requestUpdateAndWait();
   delay(1500);
+  fanqieNoteRestart("restart:sd-firmware");
   ESP.restart();
 }
 

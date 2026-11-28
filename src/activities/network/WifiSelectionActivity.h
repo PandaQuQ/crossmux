@@ -85,6 +85,11 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
 
   // Whether to attempt auto-connect on entry
   const bool allowAutoConnect;
+  // The radio starts after the screen is on screen, so Cancel still works when
+  // WiFi.mode never returns (the emulator has no radio).
+  bool radioStarted = false;
+  unsigned long radioStartAt = 0;
+  void beginEntryRadio();
 
   // Whether we are attempting to auto-connect or auto-scan saved networks.
   bool autoConnecting = false;

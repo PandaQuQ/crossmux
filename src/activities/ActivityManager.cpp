@@ -31,6 +31,11 @@
 #ifdef ENABLE_CHINESE_VERSION
 #include "apps/weread/WeReadActivity.h"
 #endif
+#ifdef FANQIE_NOVEL
+#include "FanqieStore.h"
+#include "apps/fanqie/FanqieActivity.h"
+#include "apps/fanqie/FanqieSyncActivity.h"
+#endif
 #include "apps/gomoku/GomokuMenuActivity.h"
 #include "apps/minesweeper/MinesweeperMenuActivity.h"
 #include "apps/pixel-switch/PixelSwitchActivity.h"
@@ -67,7 +72,7 @@ static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 extern HalGPIO gpio;
 ActivityManager::ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
     : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
-  assert(renderingMutex != nullptr && "Failed to create rendering mutex");
+  if (!renderingMutex) LOG_ERR("ACT", "rendering mutex create failed");
   stackActivities.reserve(10);
 }
 
@@ -595,11 +600,20 @@ void ActivityManager::goToBrowser() {
 
 void ActivityManager::goToPlugins() { replaceActivityWith<PluginCatalogActivity>(/*rootMode=*/true); }
 
-void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
+void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh, const bool fanqiePrepared) {
   if (path.empty()) {
     goToFileBrowser("/");
     return;
   }
+#ifdef FANQIE_NOVEL
+  FanqieStore::BookMeta fanqieMeta;
+  if (!fanqiePrepared && FanqieStore::findByEpubPath(path.c_str(), fanqieMeta) &&
+      replaceActivityWith<FanqieSyncActivity>(path, FanqieSyncActivity::Mode::Open)) {
+    return;
+  }
+#else
+  (void)fanqiePrepared;
+#endif
   if (FsHelpers::hasImageExtension(path)) {
     replaceActivityWith<ImageViewerActivity>(std::move(path));
     return;
@@ -689,6 +703,10 @@ void ActivityManager::goToChineseChess() { replaceActivityWith<ChineseChessMenuA
 
 #ifdef ENABLE_CHINESE_VERSION
 void ActivityManager::goToWeRead() { replaceActivityWith<WeReadActivity>(); }
+#endif
+
+#ifdef FANQIE_NOVEL
+void ActivityManager::goToFanqie() { replaceActivityWith<FanqieActivity>(); }
 #endif
 
 void ActivityManager::pushActivity(std::unique_ptr<Activity>&& activity) {
@@ -847,8 +865,13 @@ void ActivityManager::requestUpdateAndWait() {
 // RenderLock
 
 RenderLock::RenderLock(Mode mode) {
-  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
-  assert((mode == Mode::Try || isLocked) && "Blocking render lock acquisition failed");
+  auto* mutex = activityManager.renderingMutex;
+  if (!mutex) {
+    LOG_ERR("ACT", "rendering mutex missing");
+    return;
+  }
+  isLocked = xSemaphoreTake(mutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
+  if (mode != Mode::Try && !isLocked) LOG_ERR("ACT", "rendering mutex take failed");
 }
 
 RenderLock::RenderLock(Activity&) : RenderLock(Mode::Blocking) {}
@@ -874,4 +897,10 @@ void RenderLock::unlock() {
  * @return true if renderingMutex is busy, otherwise false.
  *
  */
-bool RenderLock::peek() { return xQueuePeek(activityManager.renderingMutex, NULL, 0) != pdTRUE; };
+bool RenderLock::peek() {
+  // Do not xQueuePeek a mutex. Peek treats the holder/recursion union as queue
+  // pointers. Ask for the holder instead; a null holder means the lock is free.
+  auto* mutex = activityManager.renderingMutex;
+  if (!mutex) return true;
+  return xSemaphoreGetMutexHolder(mutex) != nullptr;
+}

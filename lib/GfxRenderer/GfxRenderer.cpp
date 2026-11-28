@@ -20,6 +20,8 @@
 #include "GlyphBitmap.h"
 #include "Memory.h"
 
+extern "C" void fanqieNoteRestart(const char* why);
+
 namespace {
 // Existing high-DPI faces supply 12/14/16 pt. The proportional UI uses them
 // at the 12/15/18 pt equivalent without adding another embedded font bank.
@@ -311,6 +313,7 @@ void GfxRenderer::FrameBufferLoan::end() {
     // Only reachable if the framebuffer never existed, which begin() already
     // asserts against; kept as a backstop since running blind helps nobody.
     LOG_ERR("GFX", "Framebuffer restore failed - restarting");
+    fanqieNoteRestart("restart:framebuffer");
     ESP.restart();
   }
 }
