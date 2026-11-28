@@ -12,6 +12,7 @@ constexpr int kLogOmitted = 0;
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 
 #include <cctype>
@@ -154,6 +155,32 @@ void persist(const char* text) {
   store(text, buf, sizeof(buf));
   if (!appendLine(buf)) LOG_ERR("FQ", "crumb not on card");
 }
+
+void heapProbe(const char* tag) {
+  if (!tag || !tag[0]) tag = "heap";
+  char began[64];
+  snprintf(began, sizeof(began), "%s begin", tag);
+  // Flushed before the walk so a crash inside the checker still leaves a line.
+  if (!appendLine(began)) LOG_ERR("FQ", "heap probe not on card");
+  const bool ok = heap_caps_check_integrity_all(true);
+  constexpr uint32_t kInternal = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  constexpr uint32_t kDma = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+  constexpr uint32_t kPsram = MALLOC_CAP_SPIRAM;
+  char row[180];
+  snprintf(row, sizeof(row), "%s ok=%d int=%u/%u dma=%u/%u psram=%u/%u", tag, ok ? 1 : 0,
+           static_cast<unsigned>(heap_caps_get_free_size(kInternal)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(kInternal)),
+           static_cast<unsigned>(heap_caps_get_free_size(kDma)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(kDma)),
+           static_cast<unsigned>(heap_caps_get_free_size(kPsram)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(kPsram)));
+  LOG_INF("FQ", "%s", row);
+  char crumb[kText];
+  store(tag, crumb, sizeof(crumb));
+  if (!appendLine(row)) LOG_ERR("FQ", "heap probe not on card");
+}
+
+extern "C" void fanqieHeapProbe(const char* tag) { heapProbe(tag); }
 
 void noteBoot() {
   const bool keep = valid();

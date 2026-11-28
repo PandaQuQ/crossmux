@@ -9,6 +9,9 @@
 
 #if defined(FREEINK_NET_WOLFSSL) && !defined(CROSSPOINT_EMULATED)
 #include <strings.h>
+#if FANQIE_NOVEL
+extern "C" void fanqieHeapProbe(const char* tag);
+#endif
 
 #include <limits>
 #else
@@ -264,6 +267,11 @@ WeReadHttpClient::Result runRequest(const char* url, const WeReadHttpClient::Req
   if (isAborted(options)) return WeReadHttpClient::Result::Cancelled;
   client.setInsecure();
   client.setTimeout(static_cast<unsigned long>(options.timeoutMs));
+#if FANQIE_NOVEL
+  // Immediately before SecureClient::connect -> hostResolves. Fanqie sets
+  // trace on the QR GET; every other caller here is WeRead.
+  if (!reused) fanqieHeapProbe(options.trace ? "FQ pre-dns" : "WR pre-dns");
+#endif
   if (!reused && !client.connect(host, HTTPS_PORT)) {
     LOG_ERR("HTTP", "wolfSSL request connect failed");
     cleanupClient(client);

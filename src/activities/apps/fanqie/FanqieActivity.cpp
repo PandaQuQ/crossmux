@@ -188,11 +188,13 @@ void FanqieActivity::runLoginStep() {
   // login GET on the next loop. The card line is the one extra: a power loss
   // during TLS still leaves the step, because RTC does not survive POWERON.
   FanqieLog::persist("tls");
-  // Drop modem sleep before clearCache. That free is the ~570 ms gap before
-  // hostByName; with sleep still on, the DNS TX is what wakes the radio.
+  // Same modem-sleep state as 47dce62. The only behavior change is skipping
+  // clearCache, so a panic or a QR tells us whether that free was required.
   WifiPowerSaveGuard powerSave;
   RenderLock lock(*this);
-  if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+  FanqieLog::heapProbe("FQ pre-cache");
+  FanqieLog::persist("FQ cache=skip");
+  FanqieLog::heapProbe("FQ post-cache");
   startQr();
 }
 

@@ -33,6 +33,9 @@
 #include "components/icons/cover.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#if FANQIE_NOVEL
+#include "activities/apps/fanqie/FanqieLog.h"
+#endif
 
 namespace {
 
@@ -767,7 +770,15 @@ WeReadClient::Operation::Event WeReadActivity::stepOperation() {
   // Rendering owns a second 8KB task and large display buffers. Serialize it
   // with each synchronous protocol step so TLS never competes with a refresh.
   RenderLock renderBarrier(*this);
+#if FANQIE_NOVEL
+  // QR login baseline. Fanqie skips this free in the same image.
+  const bool loginProbe = operation_.authenticating();
+  if (loginProbe) FanqieLog::heapProbe("WR pre-cache");
+#endif
   if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+#if FANQIE_NOVEL
+  if (loginProbe) FanqieLog::heapProbe("WR post-cache");
+#endif
   // Cover conversion claims JPEGDEC from the lent 48KB framebuffer.
   std::optional<GfxRenderer::FrameBufferLoan> coverScratch;
   if (operation_.needsCoverConversionScratch()) coverScratch.emplace(renderer);
@@ -775,6 +786,9 @@ WeReadClient::Operation::Event WeReadActivity::stepOperation() {
     WeReadActivity* activity;
     RenderLock* renderBarrier;
   } context{this, &renderBarrier};
+#if FANQIE_NOVEL
+  if (loginProbe) FanqieLog::heapProbe("WR pre-step");
+#endif
   return operation_.step(
       [](void* rawContext) {
         auto* work = static_cast<WorkContext*>(rawContext);

@@ -90,11 +90,17 @@ login API.
 - After Wi-Fi returns, login paints once (`step: tls`) and returns to
   `loop()`, which is what WeRead's `startJob` does. The next turn appends
   `tls` to `fanqie.log` without painting again, turns Wi-Fi modem sleep off,
-  then takes `RenderLock`, clears the font cache, and calls
-  `WeReadHttpClient::request`. On a5a6ec5 that connect panicked inside
-  `hostResolves` (`dns_send` -> `wifi_transmit`), before wolfSSL. Modem sleep
-  is cleared first so the lookup is not the packet that wakes the radio.
-  The call still appends `tls-conn`, `tls-req`, `tls-hdr`, and `tls-body`.
+  then takes `RenderLock` and calls `WeReadHttpClient::request`. WeRead's
+  QR step does clear the font cache inside `stepOperation` before its own
+  login GET. This diagnostic image does not: Fanqie's QR step logs
+  `FQ cache=skip` and leaves the cache in place. `47dce62` still panicked
+  inside `hostResolves` (`dns_send` -> `wifi_transmit`) with modem sleep
+  already off. The same image appends `FQ`/`WR` heap lines
+  (`ok`, internal free/largest, internal-DMA free/largest, PSRAM free/largest)
+  before that lookup. X4 Pro has PSRAM; `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`
+  is set for Read Pico only, so this image keeps lwIP and Wi-Fi buffers in
+  internal RAM. The stage lines `tls-conn`, `tls-req`, `tls-hdr`, and
+  `tls-body` are unchanged.
   The lines are flushed.
   RTC memory does not survive a power cut. `NetworkStartup::prepare` is not
   called in the step. Fanqie does not drive the power latch or enter deep sleep
