@@ -25,6 +25,7 @@
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/WifiPowerSaveGuard.h"
 // PNGdec's zlib header defines `local` as static, which breaks C++ in the Wi-Fi UI.
 // clang-format off
 #include <PNGdec.h>
@@ -187,6 +188,9 @@ void FanqieActivity::runLoginStep() {
   // login GET on the next loop. The card line is the one extra: a power loss
   // during TLS still leaves the step, because RTC does not survive POWERON.
   FanqieLog::persist("tls");
+  // Drop modem sleep before clearCache. That free is the ~570 ms gap before
+  // hostByName; with sleep still on, the DNS TX is what wakes the radio.
+  WifiPowerSaveGuard powerSave;
   RenderLock lock(*this);
   if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
   startQr();

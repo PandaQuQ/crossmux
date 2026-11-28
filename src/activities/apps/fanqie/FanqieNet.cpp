@@ -21,6 +21,7 @@ constexpr int kNetOmitted = 0;
 #include <string>
 
 #include "FanqieLog.h"
+#include "network/WifiPowerSaveGuard.h"
 
 namespace FanqieNet {
 namespace {
@@ -97,6 +98,11 @@ bool requestMemory(const char* url, const FanqieProtocol::CookieJar* cookies, Fa
     response.failure = Failure::Network;
     return false;
   }
+  // a5a6ec5 panicked inside SecureClient::hostResolves, in lwIP dns_send ->
+  // wifi_transmit, before wolfSSL. That is the same first-TX path as the
+  // dbdfa8a ppTask/coex panic. Modem sleep is off before the lookup so the
+  // DNS datagram is not the packet that wakes the radio.
+  WifiPowerSaveGuard powerSave;
   WeReadHttpClient::Header headers[6] = {};
   size_t headerCount = 0;
   headers[headerCount++] = {"User-Agent", kUserAgent};

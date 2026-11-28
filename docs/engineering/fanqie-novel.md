@@ -89,10 +89,13 @@ login API.
 - At most 32 shelf books and 600 chapters are indexed per book.
 - After Wi-Fi returns, login paints once (`step: tls`) and returns to
   `loop()`, which is what WeRead's `startJob` does. The next turn appends
-  `tls` to `fanqie.log` without painting again, then takes `RenderLock`,
-  clears the font cache, and calls `WeReadHttpClient::request` the same way
-  WeRead's `requestOnce` does. That call appends `tls-conn`, `tls-req`,
-  `tls-hdr`, and `tls-body` as each stage finishes. The lines are flushed.
+  `tls` to `fanqie.log` without painting again, turns Wi-Fi modem sleep off,
+  then takes `RenderLock`, clears the font cache, and calls
+  `WeReadHttpClient::request`. On a5a6ec5 that connect panicked inside
+  `hostResolves` (`dns_send` -> `wifi_transmit`), before wolfSSL. Modem sleep
+  is cleared first so the lookup is not the packet that wakes the radio.
+  The call still appends `tls-conn`, `tls-req`, `tls-hdr`, and `tls-body`.
+  The lines are flushed.
   RTC memory does not survive a power cut. `NetworkStartup::prepare` is not
   called in the step. Fanqie does not drive the power latch or enter deep sleep
   on this path; `preventAutoSleep` is true while the login request runs.
