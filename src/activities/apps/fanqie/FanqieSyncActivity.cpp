@@ -16,6 +16,7 @@
 #include "FanqieLog.h"
 #include "FanqieNet.h"
 #include "FanqieSession.h"
+#include "NetworkStartup.h"
 #include "activities/RenderLock.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -23,6 +24,7 @@
 
 void FanqieSyncActivity::onEnter() {
   Activity::onEnter();
+  NetworkStartup::prepare(renderer);
   const char* text = tr(STR_FANQIE_OPENING);
   if (mode_ == Mode::Upload) text = tr(STR_FANQIE_UPLOADING);
   if (mode_ == Mode::Shelf) text = tr(STR_FANQIE_SYNCING);
@@ -98,10 +100,15 @@ void FanqieSyncActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasScreenTouchReleased()) leave();
     return;
   }
+  if (phase_ == Phase::Work && !painted_) {
+    // WeRead startJob paints, waits, and returns. The requests are the next loop.
+    painted_ = true;
+    requestUpdateAndWait();
+    return;
+  }
   if (phase_ == Phase::Work && !worked_) {
     worked_ = true;
-    requestUpdateAndWait();
-    FanqieLog::line("sync");
+    FanqieLog::persist("sync");
     {
       RenderLock lock(*this);
       if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();

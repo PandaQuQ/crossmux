@@ -31,10 +31,7 @@ class FanqieActivity final : public Activity {
   bool accepted_ = false;
   bool radioUsed_ = false;
   bool netBusy_ = false;
-  bool paintingStep_ = false;
   uint32_t lastAbortPoll_ = 0;
-  char step_[48] = {};
-  static FanqieActivity* active_;
   OnlineAction online_ = OnlineAction::None;
   uint32_t nextPollAt_ = 0;
   char token_[96] = {};
@@ -57,8 +54,6 @@ class FanqieActivity final : public Activity {
   void showFailure(FanqieSession::Status status, const FanqieSession::Failure& failure);
   void scheduleLogin();
   void runLoginStep();
-  void applyStep(const char* step);
-  static void showLoggedStep(const char* step);
   bool pollAbort();
   static bool abortThunk(void* self);
   void startQr();

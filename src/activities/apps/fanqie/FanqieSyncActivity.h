@@ -25,6 +25,7 @@ class FanqieSyncActivity final : public Activity {
   Mode mode_ = Mode::Open;
   HomeMenuItem homeItem_ = HomeMenuItem::NONE;
   Phase phase_ = Phase::Wifi;
+  bool painted_ = false;
   bool worked_ = false;
   char message_[96] = {};
 

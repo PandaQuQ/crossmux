@@ -12,9 +12,6 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <SecureClient.h>
-#include <WiFi.h>
-#include <esp_wifi.h>
 
 #include <algorithm>
 #include <cstring>
@@ -29,7 +26,6 @@
 #include "activities/apps/fanqie/FanqieSyncActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/WifiPowerSaveGuard.h"
 // PNGdec's zlib header defines `local` as static, which breaks C++ in the Wi-Fi UI.
 // clang-format off
 #include <PNGdec.h>
@@ -42,23 +38,8 @@
 namespace {
 
 constexpr char kAccepted[] = "/.crosspoint/fanqie/accepted";
-
-// Mode, power-save, and channel are driver settings. They do not enqueue a
-// data frame. RSSI and localIP are left unread: the panic is the first TX.
-void logWifiState() {
-  wifi_mode_t mode = WIFI_MODE_NULL;
-  wifi_ps_type_t ps = WIFI_PS_NONE;
-  uint8_t primary = 0;
-  wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
-  const esp_err_t modeErr = esp_wifi_get_mode(&mode);
-  const esp_err_t psErr = esp_wifi_get_ps(&ps);
-  const esp_err_t channelErr = esp_wifi_get_channel(&primary, &second);
-  char line[48];
-  snprintf(line, sizeof(line), "wifi m=%u/%d ps=%u/%d ch=%u/%d st=%d", static_cast<unsigned>(mode),
-           static_cast<int>(modeErr), static_cast<unsigned>(ps), static_cast<int>(psErr), primary,
-           static_cast<int>(channelErr), static_cast<int>(WiFi.status()));
-  FanqieLog::persist(line);
-}
+// Same gap WeRead uses between QR polls.
+constexpr uint32_t kLoginPollMs = 2000;
 
 struct QrBlit {
   GfxRenderer* renderer = nullptr;
@@ -91,25 +72,11 @@ int blitQr(PNGDRAW* draw) {
 
 }  // namespace
 
-FanqieActivity* FanqieActivity::active_ = nullptr;
-
-void FanqieActivity::showLoggedStep(const char* step) {
-  if (active_) active_->applyStep(step);
-}
-
-void FanqieActivity::applyStep(const char* step) {
-  snprintf(step_, sizeof(step_), "step: %s", step ? step : "");
-  if (!netBusy_ || paintingStep_ || screen_ == Screen::Qr) return;
-  paintingStep_ = true;
-  screen_ = Screen::Message;
-  requestUpdateAndWait();
-  paintingStep_ = false;
-}
-
 void FanqieActivity::onEnter() {
   Activity::onEnter();
-  active_ = this;
-  FanqieLog::setShow(&FanqieActivity::showLoggedStep);
+  // WeRead calls this once before any login request. On this device it does
+  // not free fonts: internal free is above 64KB and the largest block above 32KB.
+  NetworkStartup::prepare(renderer);
   confirmArmed_ = !mappedInput.isPressed(MappedInputManager::Button::Confirm);
   accepted_ = Storage.exists(kAccepted);
   screen_ = accepted_ ? Screen::Accounts : Screen::Disclaimer;
@@ -128,8 +95,6 @@ void FanqieActivity::reloadAccounts() {
 }
 
 void FanqieActivity::onExit() {
-  if (active_ == this) active_ = nullptr;
-  FanqieLog::setShow(nullptr);
   qr_.reset();
   qrLen_ = 0;
   jar_.clear();
@@ -189,40 +154,25 @@ void FanqieActivity::showFailure(const FanqieSession::Status status, const Fanqi
 }
 
 void FanqieActivity::scheduleLogin() {
+  // WeRead's startJob: paint Connecting, wait for that frame, return.
+  // The GET happens on the next loop inside runLoginStep.
   netPhase_ = NetPhase::Login;
   netBusy_ = true;
   screen_ = Screen::Message;
   snprintf(message_, sizeof(message_), "%s", tr(STR_FANQIE_CONNECTING));
-  // One paint, same as WeRead's startJob. The card line `tls` is written on
-  // the next loop and does not refresh the panel, so this string has to be
-  // the step the request is about to run. A second paint was the e9d1e61 path.
-  snprintf(step_, sizeof(step_), "step: tls");
-  FanqieLog::line("enter");
-  paintingStep_ = true;
+  FanqieLog::persist("login");
   requestUpdateAndWait();
-  paintingStep_ = false;
-  FanqieLog::line("painted");
 }
 
 void FanqieActivity::runLoginStep() {
-  // 12a8ae5: heap was intact and skipping clearCache still panicked in
-  // dns_send. Each line below is flushed before the call it names. The first
-  // missing "ok" is the step that panicked. RenderLock is not held: it is a
-  // FreeRTOS mutex, and WeRead's login GET does hold that mutex.
-  FanqieLog::persist("tls");
-  WifiPowerSaveGuard powerSave;
-  logWifiState();
-  FanqieLog::persist("step prepare");
-  NetworkStartup::prepare(renderer);
-  FanqieLog::persist("step prepare done");
-  FanqieLog::persist("step dns-weread");
-  const bool weread = freeink::hostResolves("weread.qq.com");
-  FanqieLog::persist(weread ? "step dns-weread ok" : "step dns-weread fail");
-  FanqieLog::persist("step dns-fanqie");
-  const bool fanqie = freeink::hostResolves("fanqienovel.com");
-  FanqieLog::persist(fanqie ? "step dns-fanqie ok" : "step dns-fanqie fail");
-  FanqieLog::persist("step request");
-  startQr();
+  // WeRead's stepOperation: hold the render mutex, drop the font cache, then
+  // one WeReadHttpClient request. Nothing else runs before that request.
+  {
+    RenderLock lock(*this);
+    if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+    startQr();
+  }
+  FanqieLog::persist(screen_ == Screen::Qr ? "qr ready" : "qr fail");
 }
 
 bool FanqieActivity::pollAbort() {
@@ -299,7 +249,7 @@ void FanqieActivity::startQr() {
   png.close();
   FanqieLog::line("qr decode ok");
   screen_ = Screen::Qr;
-  nextPollAt_ = millis() + 3000;
+  nextPollAt_ = millis() + kLoginPollMs;
 }
 
 void FanqieActivity::pollQr() {
@@ -311,7 +261,7 @@ void FanqieActivity::pollQr() {
     return;
   }
   if (status == FanqieSession::Status::Waiting) {
-    nextPollAt_ = millis() + 3000;
+    nextPollAt_ = millis() + kLoginPollMs;
     return;
   }
   if (status == FanqieSession::Status::Ok && FanqieSession::storeAccount(jar_)) {
@@ -471,9 +421,6 @@ void FanqieActivity::render(RenderLock&&) {
   } else if (screen_ == Screen::Message || screen_ == Screen::ConfirmLogout) {
     renderer.drawText(UI_12_FONT_ID, safe.x, y0,
                       screen_ == Screen::ConfirmLogout ? tr(STR_FANQIE_LOGOUT_CONFIRM) : message_, true);
-    if (screen_ == Screen::Message && step_[0]) {
-      renderer.drawText(UI_10_FONT_ID, safe.x, y0 + renderer.getLineHeight(UI_12_FONT_ID) + 8, step_, true);
-    }
   } else {
     const int count = accountCount_;
     const int active = activeAccount_;
